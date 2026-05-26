@@ -32,6 +32,14 @@ if(!window.Babel) {
   --font: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
+:root.light {
+  --bg: #f6f8fa; --bg2: #ffffff; --bg3: #f0f2f5; --bg4: #e8eaed;
+  --border: #d0d7de; --border2: #afb8c1;
+  --text: #1f2328; --text2: #656d76; --text3: #9198a1;
+  --green: #1a7f37; --red: #d1242f; --yellow: #9a6700;
+  --blue: #0969da; --blue2: #0550ae; --purple: #8250df;
+  --accent: #0969da; --accent2: #0550ae;
+}
 html, body, #root { height: 100%; }
 body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; }
 .app { min-height: 100vh; display: flex; flex-direction: column; }
@@ -320,6 +328,26 @@ async function fetchGoldSpot(avKey) {
   return null;
 }
 
+
+// ── Math-based sentiment score (anchored to real price data) ─────────────────
+function calcMathScore(perf) {
+  if(!perf) return 0;
+  // Normalize each period to -2..+2 scale
+  const norm = v => {
+    if(v == null || isNaN(v)) return 0;
+    if(v >= 5) return 2;
+    if(v >= 2) return 1;
+    if(v >= -2) return 0;
+    if(v >= -5) return -1;
+    return -2;
+  };
+  // Weighted: 1W=20%, 1M=35%, 3M=45%
+  const score = norm(perf.w1)*0.20 + norm(perf.m1)*0.35 + norm(perf.m3)*0.45;
+  return Math.round(score * 4) / 4; // round to nearest 0.25
+}
+
+function clampScore(s) { return Math.max(-2, Math.min(2, Math.round(s*4)/4)); }
+
 // ── Groq ──────────────────────────────────────────────────────────────────────
 async function groq(apiKey, prompt, onWait) {
   for(let attempt=0; attempt<4; attempt++) {
@@ -344,33 +372,49 @@ async function groq(apiKey, prompt, onWait) {
 
 async function analyzeSector(apiKey, sector, perfData, onWait) {
   const p = perfData[sector.id];
+  const mathScore = calcMathScore(p);
   const ps = p?`1W:${fp(p.w1)} 1M:${fp(p.m1)} 3M:${fp(p.m3)} 6M:${fp(p.m6)} 1Y:${fp(p.y1)}`:"No price data";
   const raw = await groq(apiKey,
     `You are a senior financial analyst writing a weekly market intelligence report. Today's date: ${new Date().toDateString()}.
 Analyze the ${sector.name} sector (ETF: ${sector.id}).
 ETF Performance data: ${ps}
 
-Focus on: (1) what actually drove performance over the PAST MONTH, (2) how recent macro events affected this sector, (3) specific companies or sub-industries leading or lagging, (4) concrete earnings results or upcoming reports THIS WEEK with expected EPS/revenue if known, (5) long-term structural trend (12-24 month view).
+CRITICAL: The math-based sentiment score derived from actual price data is ${mathScore} (scale -2 to +2).
+Your "score" field MUST stay within ±0.5 of this math score (so between ${clampScore(mathScore-0.5)} and ${clampScore(mathScore+0.5)}).
+This prevents hallucinated scores. You may only adjust if there is a SPECIFIC fundamental reason (e.g. major earnings surprise, Fed policy change this week) — explain in "scoreAdjustReason".
 
-For topGainer and topLoser: name REAL, SPECIFIC ticker symbols of stocks that moved significantly in this sector recently, with approximate % move.
+Use your most current knowledge. Today is ${new Date().toDateString()}. Reference specific recent events, company names, data releases from the past 1-3 months.
+
+Focus on: (1) what actually drove performance over the PAST MONTH with specific company/event names, (2) major geopolitical or macro events affecting this sector RIGHT NOW, (3) specific sub-industries leading or lagging, (4) concrete earnings THIS WEEK if any, (5) 12-24 month structural outlook.
 
 Respond ONLY with valid JSON, no markdown, no backticks:
-{"score":<float -2 to 2>,"momentum":<"up"|"down"|"flat">,"pulse":"<4-5 specific sentences about what drove performance this past month, name companies/events>","subindustry":"<1-2 sentences on the most interesting sub-sector right now with specific names>","earnings":"<specific company names and tickers reporting THIS week with expected results, or 'No major sector earnings this week' if genuinely none>","georisk":<null or "<specific geopolitical risk text with countries/events named>">,"topMovers":[{"ticker":"<ticker>","pct":<number>,"dir":"up"},{"ticker":"<ticker>","pct":<number>,"dir":"up"},{"ticker":"<ticker>","pct":<number>,"dir":"up"},{"ticker":"<ticker>","pct":<number>,"dir":"down"},{"ticker":"<ticker>","pct":<number>,"dir":"down"},{"ticker":"<ticker>","pct":<number>,"dir":"down"}],"outlook":"<2 sentences: near-term catalyst and 12-24 month structural view>"}`
+{"score":<float, must be between ${clampScore(mathScore-0.5)} and ${clampScore(mathScore+0.5)}>,"momentum":<"up"|"down"|"flat">,"scoreAdjustReason":"<why you adjusted from ${mathScore}, or 'none' if kept>","pulse":"<4-5 specific sentences referencing real recent events and company names>","subindustry":"<1-2 sentences on most interesting sub-sector with specific names>","earnings":"<specific companies reporting THIS week with tickers, or 'No major earnings this week'>","georisk":<null or "<specific current geopolitical risk affecting this sector>">,"topMovers":[{"ticker":"<real ticker>","pct":<number>,"dir":"up"},{"ticker":"<real ticker>","pct":<number>,"dir":"up"},{"ticker":"<real ticker>","pct":<number>,"dir":"up"},{"ticker":"<real ticker>","pct":<number>,"dir":"down"},{"ticker":"<real ticker>","pct":<number>,"dir":"down"},{"ticker":"<real ticker>","pct":<number>,"dir":"down"}],"outlook":"<2 sentences: near-term catalyst and 12-24 month structural view>"}`
   , onWait);
-  try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
-  catch { return {score:0,momentum:"flat",pulse:raw.slice(0,300),subindustry:"",earnings:"No data",georisk:null,topMovers:[],outlook:""}; }
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+    // Enforce score bounds regardless of AI response
+    parsed.score = clampScore(Math.max(mathScore-0.5, Math.min(mathScore+0.5, parsed.score||mathScore)));
+    parsed.mathScore = mathScore;
+    return parsed;
+  }
+  catch { return {score:mathScore, mathScore, momentum:"flat", pulse:raw.slice(0,300), subindustry:"", earnings:"No data", georisk:null, topMovers:[], outlook:""}; }
 }
 
 async function analyzeMacro(apiKey) {
   const raw = await groq(apiKey,
-    `You are a senior macro economist. Today's date: ${new Date().toDateString()}.
-Write a weekly macro briefing for retail investors who understand basic finance.
+    `You are a senior macro economist with access to the most current market data. Today's date: ${new Date().toDateString()}.
 
-Be SPECIFIC: use actual current data points, name real events, give concrete numbers.
-Focus on: (1) latest CPI print and trend over past 3 months, (2) Fed's current stance and what they said at the last meeting, (3) GDP growth trajectory and whether recession risk is rising or falling, (4) one key macro theme dominating markets this month and how it affects long-term trends.
+Use your most recent knowledge. Be SPECIFIC with actual figures, dates, and events from the past 1-3 months.
+IMPORTANT: If there are active geopolitical conflicts, trade wars, sanctions, or financial crises happening RIGHT NOW, mention them explicitly and how they affect markets.
+
+Focus on:
+(1) Latest CPI reading with exact figure and whether it's trending up or down
+(2) Current Fed funds rate and exact stance from most recent FOMC meeting — are cuts or hikes expected next?
+(3) GDP trajectory and any recent recession indicators (yield curve, PMI, employment)
+(4) The single most important macro theme RIGHT NOW affecting global markets (e.g. tariffs, oil supply shock, dollar strength, geopolitical conflict)
 
 Respond ONLY with valid JSON, no markdown:
-{"cpi":"<actual latest CPI figure e.g. 3.2% YoY>","cpiNote":"<2 sentences: latest reading, 3-month trend, what it means for Fed>","rates":"<actual Fed funds rate range>","ratesNote":"<2 sentences: current stance, what recent Fed meeting said, next expected move>","gdp":"<latest GDP growth rate>","gdpNote":"<2 sentences: trajectory, recession risk assessment>","overallTone":<"Risk-On"|"Risk-Off"|"Mixed">,"macroSummary":"<3-4 sentences covering the dominant macro theme this month and its long-term investment implications — be specific about sectors/assets affected>"}`
+{"cpi":"<exact latest figure>","cpiNote":"<2 sentences with trend and Fed implication>","rates":"<exact current rate>","ratesNote":"<2 sentences: last FOMC decision and next expected move>","gdp":"<latest reading>","gdpNote":"<2 sentences: trajectory and recession risk>","overallTone":<"Risk-On"|"Risk-Off"|"Mixed">,"macroSummary":"<3-4 sentences: the dominant market theme RIGHT NOW, specific geopolitical/macro events, and what it means for investors over the next 6-12 months>"}`
   );
   try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
   catch { return {cpi:"N/A",cpiNote:"",rates:"N/A",ratesNote:"",gdp:"N/A",gdpNote:"",overallTone:"Mixed",macroSummary:raw.slice(0,300)}; }
@@ -379,20 +423,22 @@ Respond ONLY with valid JSON, no markdown:
 async function analyzeComm(apiKey, perfData, onWait) {
   const p = k => perfData[k]?`price $${perfData[k].price?.toFixed(2)}, 1W:${fp(perfData[k].w1)}, 1M:${fp(perfData[k].m1)}, 3M:${fp(perfData[k].m3)}`:"N/A";
   const raw = await groq(apiKey,
-    `You are a commodities analyst. Today's date: ${new Date().toDateString()}.
-Write a weekly commodities briefing for retail investors. Be specific — name real events, supply/demand dynamics, geopolitical drivers.
+    `You are a senior commodities analyst with access to the most current market intelligence. Today's date: ${new Date().toDateString()}.
 
-Current ETF data:
+Current ETF price data:
 GLD (Gold): ${p("GLD")}
-USO (Oil): ${p("USO")}  
+USO (Oil): ${p("USO")}
 SLV (Silver): ${p("SLV")}
 COPA (Copper): ${p("COPA")}
 DJP (Broad Commodities): ${p("DJP")}
 
-Focus on: (1) what specifically drove gold over the PAST MONTH — central bank buying, dollar moves, real yields, geopolitics, (2) oil price drivers — OPEC decisions, demand outlook, inventory data, (3) copper as economic indicator — what it signals about global growth right now, (4) long-term commodity cycle view (1-2 year).
+CRITICAL: Use your most recent knowledge. Reference SPECIFIC current events from the past 1-3 months.
+For oil specifically: mention any active geopolitical conflicts affecting supply (Middle East tensions, Iran sanctions, Russia/Ukraine, Strait of Hormuz, OPEC+ decisions), current WTI/Brent price levels, and inventory data.
+For gold: mention central bank buying trends, real yield moves, dollar strength/weakness, safe-haven demand drivers.
+Do NOT give generic answers — every sentence should reference a specific real event, country, or data point.
 
 Respond ONLY with valid JSON, no markdown:
-{"goldNote":"<3 sentences: specific drivers of gold's past month move, long-term outlook>","oilNote":"<3 sentences: OPEC stance, demand/supply dynamics, price outlook>","silverNote":"<2 sentences: industrial vs safe-haven demand split>","copperNote":"<2 sentences: what copper is signaling about global growth right now>","commoditySummary":"<3-4 sentences: overall commodity cycle view and long-term implications for investors>"}`
+{"goldNote":"<3 sentences: SPECIFIC current drivers with country/event names and price context>","oilNote":"<3 sentences: current geopolitical supply risks, OPEC+ stance, demand outlook with specific numbers>","silverNote":"<2 sentences: current industrial demand vs safe-haven split>","copperNote":"<2 sentences: what copper price level signals about global growth right now>","commoditySummary":"<3-4 sentences: overall commodity market narrative RIGHT NOW and 12-month outlook>"}`
   , onWait);
   try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
   catch { return {goldNote:"",oilNote:"",silverNote:"",copperNote:"",commoditySummary:raw.slice(0,300)}; }
@@ -711,6 +757,67 @@ function SettingsTab({ settings, onSave, onClearCache, onClearHistory, cacheInfo
 }
 
 
+
+
+const TICKER_NAMES = {
+  SPY:"S&P 500 ETF", QQQ:"Nasdaq 100 ETF", DIA:"Dow Jones ETF", IWM:"Russell 2000 ETF",
+  XLK:"Technology", XLV:"Healthcare", XLF:"Financials", XLE:"Energy",
+  XLY:"Consumer Discr.", XLP:"Consumer Staples", XLI:"Industrials", XLB:"Materials",
+  XLRE:"Real Estate", XLU:"Utilities", XLC:"Comm. Services",
+  VEU:"World ex-US ETF", EEM:"Emerging Markets ETF", VGK:"Europe ETF", VPL:"Asia Pacific ETF",
+  GLD:"Gold ETF", SLV:"Silver ETF", USO:"Oil ETF", COPA:"Copper ETF", DJP:"Broad Commodities ETF",
+  VIX:"CBOE Volatility Index", UMCSENT:"UMich Consumer Sentiment",
+};
+
+const EVENT_DESCRIPTIONS = {
+  "Dot-com Bubble Peak": "NASDAQ hit 5,048 on March 10, 2000 before collapsing 78% over two years as internet company valuations proved unsustainable.",
+  "9/11 Attacks": "Terrorist attacks on the US caused markets to close for 4 days; S&P 500 fell 11.6% on reopening, triggering a global risk-off selloff.",
+  "Dot-com Bottom": "S&P 500 bottomed after a 49% peak-to-trough decline, marking the end of the worst bear market since the Great Depression.",
+  "Bear Stearns Bailout": "JPMorgan acquired Bear Stearns for $2/share (later $10) with Fed backing, signaling the depth of the subprime mortgage crisis.",
+  "Fannie/Freddie Nationalized": "US government took conservatorship of Fannie Mae and Freddie Mac, backstopping $5 trillion in mortgage debt.",
+  "Lehman Brothers Collapse": "Lehman's bankruptcy filing triggered a global credit freeze, the worst financial crisis since 1929, and a 57% peak-to-trough S&P 500 decline.",
+  "Congress Rejects TARP": "House initially voted down the $700B bailout package, causing the Dow to drop 777 points — its largest single-day point loss at the time.",
+  "TARP $700B Approved": "Congress passed the Emergency Economic Stabilization Act, authorizing $700B to purchase toxic mortgage assets and stabilize the financial system.",
+  "GFC Market Bottom": "S&P 500 hit 666 on March 9, 2009 — the bottom of the Global Financial Crisis — beginning an 11-year bull market.",
+  "Fed Launches QE1": "Federal Reserve announced $1.75T in asset purchases (QE1), the first round of quantitative easing in US history.",
+  "Flash Crash": "Dow Jones plunged nearly 1,000 points intraday on May 6, 2010 due to algorithmic trading cascades, recovering most losses within minutes.",
+  "US Credit Downgrade (S&P)": "S&P stripped the US of its AAA credit rating for the first time in history, citing political dysfunction over debt ceiling negotiations.",
+  "Draghi: Whatever It Takes": "ECB President Mario Draghi pledged to do 'whatever it takes' to preserve the euro, effectively ending the European sovereign debt crisis.",
+  "Fed Launches QE2": "Fed announced $600B in additional Treasury purchases, extending unconventional monetary policy amid sluggish recovery.",
+  "Fed Launches QE3": "Fed launched open-ended $85B/month bond buying program, the most aggressive QE effort, tied to unemployment/inflation targets.",
+  "Taper Tantrum": "Fed Chair Bernanke hinted at tapering QE, causing 10-year Treasury yields to spike 100bps and emerging market selloffs.",
+  "China Black Monday": "Chinese stocks fell 8.5% on August 24, 2015 amid growth fears; the S&P 500 fell 11% in days as global contagion spread.",
+  "Fed First Rate Hike (Post-GFC)": "Fed raised rates 0.25% for the first time since 2006, marking the end of near-zero interest rate policy after 7 years.",
+  "Brexit Vote": "UK voted 52-48 to leave the EU, triggering a global risk-off shock, pound sterling collapse, and European political uncertainty.",
+  "Trump Election 2016": "Donald Trump's unexpected presidential victory triggered the 'Trump trade': surging financials, infrastructure stocks, and the dollar.",
+  "Volmageddon VIX Spike": "XIV (inverse VIX ETF) collapsed 93% overnight as volatility spiked, wiping out billions in short-vol positions.",
+  "Christmas Eve Crash Bottom": "S&P 500 hit bear market territory (-20%) on December 24, 2018 amid Fed rate hike fears and government shutdown.",
+  "Yield Curve Inverts": "US 2-year/10-year yield curve inverted in August 2019, a historically reliable recession indicator, triggering growth fears.",
+  "COVID Crash Begins": "WHO declared COVID-19 a pandemic; global markets entered the fastest bear market in history, falling 34% in 33 days.",
+  "Fed Emergency Cut to Zero": "Fed slashed rates to 0-0.25% and announced unlimited QE in an emergency Sunday meeting to combat COVID economic shock.",
+  "COVID Market Bottom": "S&P 500 bottomed at 2,237 on March 23, 2020, beginning one of the fastest bull market recoveries in history.",
+  "CARES Act $2.2T Signed": "The largest economic stimulus in US history provided direct payments, unemployment benefits, and business loans.",
+  "Oil Futures Go Negative": "WTI crude oil futures went negative for the first time ever (-$37/barrel) as storage capacity filled amid demand collapse.",
+  "Pfizer Vaccine Announced": "Pfizer/BioNTech announced 90%+ vaccine efficacy, triggering the biggest single-day rotation from growth to value stocks on record.",
+  "GameStop/Meme Stock Mania": "Reddit's WallStreetBets coordinated a short squeeze in GameStop (GME), exposing systemic risks in short selling and payment for order flow.",
+  "Fed Taper Announced": "Fed formally announced tapering of $120B/month bond purchases, beginning the end of pandemic-era monetary accommodation.",
+  "Fed Rate Hike Cycle Begins": "Fed began the most aggressive rate hike cycle since the 1980s, eventually raising rates from 0% to 5.25-5.50% by July 2023.",
+  "Russia Invades Ukraine": "Russia's full-scale invasion of Ukraine triggered a commodity price shock (oil, wheat, natural gas) and major European energy crisis.",
+  "CPI Peaks at 9.1%": "US CPI hit 9.1% YoY in June 2022 — the highest since 1981 — cementing the Fed's aggressive tightening path.",
+  "Jackson Hole Hawkish Pivot": "Fed Chair Powell delivered a blunt 8-minute speech pledging to fight inflation even at the cost of economic pain.",
+  "UK Gilt Crisis / LDI": "UK mini-budget triggered a gilt market collapse; pension funds faced margin calls; Bank of England intervened with emergency bond buying.",
+  "SVB Bank Collapse": "Silicon Valley Bank failed in 48 hours — the second-largest US bank failure ever — triggering fears of a broader banking crisis.",
+  "First Republic Fails": "First Republic Bank was seized and sold to JPMorgan, capping a period of regional bank stress following SVB's collapse.",
+  "Fed Final Rate Hike": "Fed raised rates to 5.25-5.50%, the highest in 22 years, signaling a potential peak in the tightening cycle.",
+  "Israel-Hamas War Begins": "Hamas attack on Israel on October 7, 2023 triggered a Middle East conflict, raising oil supply risk and safe-haven demand.",
+  "Yen Carry Trade Unwind": "Surprise Bank of Japan rate hike triggered a rapid unwind of the yen carry trade, causing a global equity selloff of 5-10%.",
+  "Fed Begins Rate Cuts": "Fed cut rates 50bps in September 2024 — the first cut since 2020 — beginning an easing cycle as inflation cooled.",
+  "Trump Election 2024": "Donald Trump won the presidential election, triggering surges in financials, energy, crypto, and small caps on deregulation expectations.",
+  "Trump Inauguration / Tariff Era": "Trump's return to the White House ushered in broad tariff proposals, trade war escalation risks, and dollar strength.",
+  "US Liberation Day Tariffs": "Trump announced sweeping 'Liberation Day' tariffs — 10% baseline plus country-specific rates — triggering a global market selloff.",
+  "90-Day Tariff Pause": "Trump paused most tariffs for 90 days (except China) after bond market stress, triggering one of the largest single-day rallies in decades.",
+};
+
 // ── Market Events Library ─────────────────────────────────────────────────────
 const MARKET_EVENTS_MAJOR = [
   // ── Pre-GFC ──────────────────────────────────────────────────────────────
@@ -984,6 +1091,7 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
   const [events, setEvents] = useState("major"); // off | major | all
   const [rangeResult, setRangeResult] = useState(null);
   const [bakeReady, setBakeReady] = useState(false);
+  const [visibleEventsForPanel, setVisibleEventsForPanel] = useState([]);
   // aiEvents comes from parent App via prop — auto-updates when weekly report runs
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
@@ -1055,15 +1163,21 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
     try {
       const fred = await fetchFRED("UMCSENT");
       if(fred.dates.length > 0) {
-        // UMCSENT is monthly — map to daily master dates (forward-fill)
-        const umMap = {};
-        fred.dates.forEach((d,i) => { umMap[d] = fred.values[i]; });
+        // UMCSENT is monthly — forward-fill to all master dates
+        // Sort fred dates ascending
+        const fredSorted = fred.dates.map((d,i)=>({date:d,val:fred.values[i]})).sort((a,b)=>a.date.localeCompare(b.date));
         let lastVal = null;
+        let fredIdx = 0;
         aligned["UMCSENT"] = masterDates.map(d => {
-          if(umMap[d] !== undefined) lastVal = umMap[d];
-          return lastVal;
+          // Advance fred pointer to include all monthly values up to this date
+          while(fredIdx < fredSorted.length && fredSorted[fredIdx].date <= d) {
+            lastVal = fredSorted[fredIdx].val;
+            fredIdx++;
+          }
+          return lastVal; // forward-fill with last known monthly value
         });
-        tick("Consumer Sentiment fetched ✓");
+        const nonNull = aligned["UMCSENT"].filter(v=>v!==null).length;
+        tick(`Consumer Sentiment fetched ✓ (${nonNull} data points)`);
       }
     } catch(e) { tick("⚠ UMCSENT: "+e.message); }
 
@@ -1141,28 +1255,28 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
 
     const datasets = [...priceDatasets, ...indicatorDatasets];
 
-    // Event annotations: hardcoded + AI-generated, merged and deduplicated
+    // Event annotations: only vertical lines (no labels) to avoid overlap
+    // Full event details are shown in the panel below the chart
     const hardcodedList = events==="all" ? MARKET_EVENTS_ALL : events==="major" ? MARKET_EVENTS_ALL.filter(e=>MARKET_EVENTS_MAJOR_FILTER.includes(e.label)) : [];
     const aiFiltered = events!=="off" ? aiEvents.filter(e => events==="major" ? e.tier==="major" : true) : [];
     const eventList = [...hardcodedList, ...aiFiltered].filter((ev,i,arr)=>
       arr.findIndex(e=>e.date===ev.date&&e.label===ev.label)===i
     ).sort((a,b)=>a.date.localeCompare(b.date));
 
-    const annotations = {};
-    eventList.forEach((ev,i) => {
+    // Filter to events within visible window
+    const visibleEvents = eventList.filter(ev => {
       const nearest = slicedDates.findIndex(d=>d>=ev.date);
-      if(nearest===-1) return;
-      const isAI = !!ev.tier; // AI events have tier field
+      return nearest !== -1;
+    });
+
+    const annotations = {};
+    visibleEvents.forEach((ev,i) => {
+      const nearest = slicedDates.findIndex(d=>d>=ev.date);
       annotations["ev"+i] = {
         type:"line", xMin:nearest, xMax:nearest,
-        borderColor:ev.color+"bb", borderWidth: isAI ? 2 : 1.5,
-        borderDash: isAI ? [6,3] : [4,3],
-        label:{
-          display:true, content:(isAI?"★ ":"")+ev.label,
-          position:"start", color:ev.color,
-          font:{size:9,family:"Inter",weight:isAI?"700":"400"},
-          backgroundColor:"rgba(0,0,0,0.8)", padding:3
-        }
+        borderColor:ev.color+"99", borderWidth:1.5,
+        borderDash:[4,3],
+        // No label on chart — shown in panel below instead
       };
     });
 
@@ -1215,6 +1329,8 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
         }
       }
     });
+    // Store visible events for the panel below chart
+    setVisibleEventsForPanel(visibleEvents);
     return () => { if(chartInstanceRef.current) chartInstanceRef.current.destroy(); };
   }, [hasData, activeAssets, window_, mode, events, priceData, dates, aiEvents]);
 
@@ -1368,6 +1484,38 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
         </div>
       )}
 
+      {/* Events Panel */}
+      {events !== "off" && visibleEventsForPanel.length > 0 && (
+        <div className="card">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div className="card-title" style={{margin:0}}>Market Events in View ({visibleEventsForPanel.length})</div>
+            <div style={{fontSize:11,color:"var(--text3)"}}>Vertical lines on chart correspond to each event below</div>
+          </div>
+          <div style={{maxHeight:300,overflowY:"auto",display:"flex",flexDirection:"column",gap:0}}>
+            {visibleEventsForPanel.map((ev,i)=>(
+              <div key={i} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:"1px solid var(--border)",alignItems:"flex-start"}}>
+                <div style={{width:3,borderRadius:2,background:ev.color,flexShrink:0,alignSelf:"stretch",minHeight:20}}/>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:3,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:700,fontSize:12,color:ev.color}}>{ev.label}</span>
+                    <span style={{fontSize:11,color:"var(--text3)",fontFamily:"var(--font-mono)"}}>{ev.date}</span>
+                    {ev.tier&&<span style={{fontSize:10,background:"rgba(0,217,255,.1)",color:"var(--accent)",padding:"1px 6px",borderRadius:3}}>AI</span>}
+                  </div>
+                  {ev.detail&&<div style={{fontSize:12,color:"var(--text2)",lineHeight:1.6,marginBottom:4}}>{ev.detail}</div>}
+                  {!ev.detail&&EVENT_DESCRIPTIONS[ev.label]&&<div style={{fontSize:12,color:"var(--text2)",lineHeight:1.6,marginBottom:4}}>{EVENT_DESCRIPTIONS[ev.label]}</div>}
+                  {ev.source&&<div style={{fontSize:11}}>
+                    <span style={{color:"var(--text3)"}}>Source: </span>
+                    {ev.sourceUrl
+                      ? <a href={ev.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent)",textDecoration:"none"}}>{ev.source} ↗</a>
+                      : <span style={{color:"var(--text2)"}}>{ev.source}</span>}
+                  </div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Asset toggles */}
       <div className="asset-toggles">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1389,7 +1537,7 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
                 return (
                   <button key={t} className={`asset-chip ${on?"":"off"}`}
                     style={on?{background:col+"22",borderColor:col,color:col}:{}}
-                    title={isInd?"Shown on right axis — raw values, not % return":""}
+                    title={`${TICKER_NAMES[t]||t}${isInd?" — right axis, raw value":"" }`}
                     onClick={()=>toggleAsset(t)}>
                     <div className="asset-chip-dot" style={{background:on?col:"var(--border2)"}}/>
                     {label}{isInd?" ⊳":""}
@@ -1496,6 +1644,18 @@ function App() {
   }, []);
 
 
+  const [theme, setTheme] = useState(()=>localStorage.getItem("mkt_theme")||"dark");
+  const toggleTheme = useCallback(()=>{
+    setTheme(t=>{
+      const next = t==="dark"?"light":"dark";
+      localStorage.setItem("mkt_theme", next);
+      document.documentElement.classList.toggle("light", next==="light");
+      return next;
+    });
+  },[]);
+  useEffect(()=>{
+    document.documentElement.classList.toggle("light", theme==="light");
+  },[theme]);
   const [chartNeedsUpdate, setChartNeedsUpdate] = useState(false);
   const [aborting, setAborting] = useState(false);
   const abortRef = React.useRef(false);
@@ -1640,7 +1800,12 @@ function App() {
           <div className="status-dot" style={{background:hasData?"var(--green)":"var(--red)"}}/>
           {hasData?`Updated ${new Date(cache.timestamp).toLocaleDateString()}`:"No data"}
         </div>
-        <div className="header-meta">{new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <button onClick={toggleTheme} style={{background:"var(--bg3)",border:"1px solid var(--border)",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:13,color:"var(--text2)"}}>
+            {theme==="dark"?"☀️ Light":"🌙 Dark"}
+          </button>
+          <div className="header-meta">{new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+        </div>
       </div>
 
       {/* Tabs */}
