@@ -1,0 +1,1876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Market Intelligence Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script>
+// Fallback: if cdnjs Babel didn't load, try unpkg
+if(!window.Babel) {
+  var s = document.createElement('script');
+  s.src = 'https://unpkg.com/@babel/standalone@7.23.5/babel.min.js';
+  document.head.appendChild(s);
+}
+</script>
+<style>
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #080c10; --bg2: #0d1117; --bg3: #161b22; --bg4: #1c2330;
+  --border: #21262d; --border2: #30363d;
+  --text: #e6edf3; --text2: #8b949e; --text3: #484f58;
+  --green: #3fb950; --red: #f85149; --yellow: #e3b341;
+  --blue: #58a6ff; --blue2: #1f6feb; --purple: #bc8cff;
+  --accent: #00d9ff; --accent2: #0096b2;
+  --font: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; }
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+.header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 0 28px; display: flex; align-items: center; justify-content: space-between; height: 58px; position: sticky; top: 0; z-index: 100; }
+.header-logo { font-size: 14px; font-weight: 800; letter-spacing: 3px; color: var(--accent); text-transform: uppercase; }
+.header-meta { font-size: 12px; color: var(--text3); }
+.header-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.tabs { background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; padding: 0 28px; overflow-x: auto; }
+.tab { padding: 13px 22px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer; border: none; background: none; color: var(--text3); border-bottom: 2px solid transparent; transition: all .2s; white-space: nowrap; font-family: var(--font); }
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.main { flex: 1; padding: 28px; max-width: 1400px; margin: 0 auto; width: 100%; }
+.gap-20 { display: flex; flex-direction: column; gap: 20px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; }
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.card-title { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text3); margin-bottom: 16px; }
+.perf { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); }
+.perf.pos { color: var(--green); background: rgba(63,185,80,.12); }
+.perf.neg { color: var(--red); background: rgba(248,81,73,.12); }
+.perf.neu { color: var(--text2); background: rgba(139,148,158,.1); }
+.sent-track { height: 5px; background: var(--bg4); border-radius: 3px; }
+.sent-fill { height: 100%; border-radius: 3px; transition: width .6s; }
+.bench-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.bench-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.bench-ticker { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
+.bench-price { font-size: 22px; font-weight: 700; color: var(--text); margin: 8px 0 4px; font-family: var(--font-mono); }
+.bench-perf-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+.bench-perf-label { font-size: 11px; color: var(--text3); }
+.sector-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; cursor: pointer; transition: border-color .2s, background .2s; }
+.sector-card:hover { border-color: var(--border2); background: var(--bg3); }
+.sector-card.expanded { border-color: var(--accent2); }
+.sector-name { font-size: 14px; font-weight: 700; }
+.sector-ticker { font-size: 11px; color: var(--text3); font-family: var(--font-mono); margin-top: 2px; }
+.expanded-section { margin-bottom: 12px; }
+.expanded-label { font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; }
+.expanded-text { font-size: 13px; color: var(--text2); line-height: 1.65; }
+.risk-flag { background: rgba(227,179,65,.08); border: 1px solid rgba(227,179,65,.2); border-radius: 5px; padding: 8px 12px; font-size: 12px; color: var(--yellow); }
+.sector-divider { height: 1px; background: var(--border); margin: 14px 0; }
+.mover-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.mover-row:last-child { border-bottom: none; }
+.mover-ticker { font-family: var(--font-mono); font-weight: 600; }
+.mover-pct { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
+.heatmap { display: grid; grid-template-columns: repeat(11,1fr); gap: 6px; }
+.heatmap-cell { padding: 10px 6px; border-radius: 6px; text-align: center; cursor: default; }
+.heatmap-cell-emoji { font-size: 16px; margin-bottom: 4px; }
+.heatmap-cell-name { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; margin-bottom: 3px; line-height: 1.2; }
+.heatmap-cell-ticker { font-size: 9px; font-family: var(--font-mono); opacity: 0.7; margin-bottom: 4px; }
+.heatmap-cell-score { font-size: 12px; font-weight: 800; font-family: var(--font-mono); }
+.macro-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+.macro-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.macro-label { font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+.macro-value { font-size: 22px; color: var(--accent); font-weight: 800; margin-bottom: 6px; font-family: var(--font-mono); }
+.macro-note { font-size: 12px; color: var(--text2); line-height: 1.6; }
+.rotation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.rotation-col-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
+.rotation-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.rotation-item:last-child { border-bottom: none; }
+.comm-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.comm-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.comm-spot { font-size: 24px; color: var(--yellow); font-weight: 800; margin: 8px 0 2px; font-family: var(--font-mono); }
+.comm-spot-label { font-size: 10px; color: var(--text3); letter-spacing: 1px; font-weight: 600; }
+.history-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.hist-btn { padding: 5px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--border2); background: transparent; color: var(--text2); font-family: var(--font); transition: all .2s; }
+.hist-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.chart-wrap { position: relative; height: 200px; margin-top: 8px; }
+.progress-wrap { padding: 70px 28px; text-align: center; }
+.progress-title { font-size: 24px; font-weight: 800; color: var(--accent); margin-bottom: 8px; letter-spacing: 2px; text-transform: uppercase; }
+.progress-sub { font-size: 13px; color: var(--text2); margin-bottom: 36px; }
+.progress-track { background: var(--bg3); border-radius: 3px; height: 4px; overflow: hidden; margin-bottom: 10px; max-width: 500px; margin-left: auto; margin-right: auto; }
+.progress-fill { height: 100%; background: var(--accent); transition: width .4s; }
+.progress-ticker { font-size: 12px; color: var(--text3); margin-bottom: 24px; font-family: var(--font-mono); }
+.progress-log { max-width: 420px; margin: 0 auto; text-align: left; }
+.progress-item { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 7px; }
+.progress-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.settings-wrap { max-width: 580px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.setting-group { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 22px; }
+.setting-label { font-size: 11px; font-weight: 700; color: var(--text3); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+.setting-desc { font-size: 12px; color: var(--text2); margin-bottom: 14px; line-height: 1.65; }
+.setting-input { width: 100%; background: var(--bg); border: 1px solid var(--border2); border-radius: 5px; padding: 10px 14px; color: var(--text); font-family: var(--font-mono); font-size: 13px; outline: none; transition: border-color .2s; }
+.setting-input:focus { border-color: var(--accent); }
+.btn { padding: 8px 18px; border-radius: 5px; font-family: var(--font); font-size: 12px; font-weight: 600; letter-spacing: 0.5px; cursor: pointer; border: none; transition: all .2s; text-transform: uppercase; }
+.btn-primary { background: var(--accent); color: var(--bg); }
+.btn-primary:hover { background: #00b8d9; }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border2); }
+.btn-ghost:hover { border-color: var(--text2); color: var(--text); }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+.btn-danger:hover { background: rgba(248,81,73,.1); }
+.btn-generate { background: linear-gradient(135deg, var(--accent), var(--blue2)); color: white; font-weight: 800; font-size: 15px; padding: 16px 44px; border-radius: 8px; letter-spacing: 1.5px; border: none; cursor: pointer; font-family: var(--font); text-transform: uppercase; box-shadow: 0 0 32px rgba(0,217,255,.2); transition: all .2s; }
+.btn-generate:hover { box-shadow: 0 0 48px rgba(0,217,255,.35); transform: translateY(-1px); }
+.btn-generate:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.welcome { text-align: center; padding: 90px 28px; }
+.welcome-title { font-size: 38px; font-weight: 800; color: var(--accent); letter-spacing: 3px; margin-bottom: 10px; text-transform: uppercase; }
+.welcome-sub { font-size: 14px; color: var(--text2); margin-bottom: 52px; }
+.welcome-features { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; max-width: 740px; margin: 0 auto 52px; }
+.welcome-feat { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; text-align: left; }
+.welcome-feat-icon { font-size: 22px; margin-bottom: 10px; }
+.welcome-feat-title { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 5px; }
+.welcome-feat-desc { font-size: 11px; color: var(--text3); line-height: 1.6; }
+.sort-bar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+.sort-label { font-size: 11px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+.sort-btn { padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--border2); background: transparent; color: var(--text2); font-family: var(--font); transition: all .2s; }
+.sort-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.empty { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; }
+.chart-tab { display: flex; flex-direction: column; gap: 20px; }
+.chart-main-wrap { position: relative; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.chart-canvas-wrap { position: relative; height: 460px; cursor: crosshair; }
+.chart-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+.chart-toolbar-group { display: flex; gap: 4px; align-items: center; }
+.chart-toolbar-label { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-right: 4px; white-space: nowrap; }
+.chart-tb-btn { padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid var(--border2); background: transparent; color: var(--text2); font-family: var(--font); transition: all .15s; white-space: nowrap; }
+.chart-tb-btn:hover { border-color: var(--text2); color: var(--text); }
+.chart-tb-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.chart-tb-btn.mode-rel.active { background: var(--purple); border-color: var(--purple); color: #000; }
+.chart-separator { width: 1px; height: 20px; background: var(--border2); margin: 0 4px; }
+.asset-toggles { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.asset-group-title { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+.asset-group { margin-bottom: 16px; }
+.asset-group:last-child { margin-bottom: 0; }
+.asset-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.asset-chip { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid transparent; transition: all .15s; font-family: var(--font); }
+.asset-chip.off { background: var(--bg3); border-color: var(--border); color: var(--text3); }
+.asset-chip.off:hover { border-color: var(--border2); color: var(--text2); }
+.asset-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.range-sidebar { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+.range-title { font-size: 11px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.range-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.range-row:last-child { border-bottom: none; }
+.range-ticker { font-family: var(--font-mono); font-weight: 600; }
+.corr-matrix { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; overflow-x: auto; }
+.corr-table { border-collapse: collapse; font-size: 11px; min-width: 100%; }
+.corr-table th { padding: 6px 10px; font-weight: 700; color: var(--text3); font-size: 10px; text-align: center; white-space: nowrap; }
+.corr-table td { padding: 5px 10px; text-align: center; font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border); }
+.chart-fetch-status { text-align: center; padding: 60px 20px; }
+.chart-fetch-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.chart-fetch-sub { font-size: 13px; color: var(--text2); margin-bottom: 28px; line-height: 1.6; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+@media (max-width: 1000px) {
+  .grid-4 { grid-template-columns: 1fr 1fr; }
+  .heatmap { grid-template-columns: repeat(4,1fr); }
+  .welcome-features { grid-template-columns: 1fr 1fr; }
+  .macro-grid { grid-template-columns: 1fr; }
+  .rotation-grid { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:Inter,sans-serif;gap:16px">
+    <div style="color:#00d9ff;font-size:13px;letter-spacing:2px;font-weight:700">MARKET INTELLIGENCE</div>
+    <div style="color:#484f58;font-size:12px">Initializing app...</div>
+    <div style="width:200px;height:2px;background:#1c2330;border-radius:1px;margin-top:8px">
+      <div id="init-bar" style="height:100%;background:#00d9ff;width:0%;transition:width 0.3s;border-radius:1px"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.onerror = function(msg, src, line) {
+  var root = document.getElementById('root');
+  if(root) root.innerHTML = '<div style="padding:40px;font-family:monospace;color:#f85149;background:#0d1117;min-height:100vh"><h2 style="margin-bottom:16px">Startup Error</h2><pre style="font-size:12px;white-space:pre-wrap;color:#e6edf3;background:#161b22;padding:16px;border-radius:4px">' + String(msg) + '\n\nLine: ' + line + '</pre></div>';
+};
+</script>
+
+<script id="app-source" type="text/x-app-source">
+var React = window.React;
+var ReactDOM = window.ReactDOM;
+var Chart = window.Chart;
+const { useState, useEffect, useCallback, useRef } = React;
+
+const SECTORS = [
+  { id:"XLK", name:"Technology", emoji:"⚡" },
+  { id:"XLV", name:"Healthcare", emoji:"🧬" },
+  { id:"XLF", name:"Financials", emoji:"🏦" },
+  { id:"XLE", name:"Energy", emoji:"🛢️" },
+  { id:"XLY", name:"Cons. Discr.", emoji:"🛍️" },
+  { id:"XLP", name:"Cons. Staples", emoji:"🛒" },
+  { id:"XLI", name:"Industrials", emoji:"⚙️" },
+  { id:"XLB", name:"Materials", emoji:"⛏️" },
+  { id:"XLRE", name:"Real Estate", emoji:"🏢" },
+  { id:"XLU", name:"Utilities", emoji:"💡" },
+  { id:"XLC", name:"Comm. Svcs", emoji:"📡" },
+];
+const BENCHMARKS = [
+  { id:"SPY", name:"S&P 500" },
+  { id:"QQQ", name:"Nasdaq 100" },
+  { id:"DIA", name:"Dow Jones" },
+  { id:"IWM", name:"Russell 2000" },
+];
+const GLOBAL = [
+  { id:"VEU", name:"World ex-US" },
+  { id:"EEM", name:"Emerging Mkts" },
+  { id:"VGK", name:"Europe" },
+  { id:"VPL", name:"Asia Pacific" },
+];
+const COMMODITIES = [
+  { id:"GLD", name:"Gold ETF" },
+  { id:"SLV", name:"Silver" },
+  { id:"USO", name:"Oil ETF" },
+  { id:"COPA", name:"Copper" },
+  { id:"DJP", name:"Broad Commodities" },
+];
+const ALL_TICKERS = [...SECTORS.map(s=>s.id),...BENCHMARKS.map(b=>b.id),...GLOBAL.map(g=>g.id),...COMMODITIES.map(c=>c.id)];
+
+const CACHE_KEY="mkt_v4_cache", HISTORY_KEY="mkt_v4_history", SETTINGS_KEY="mkt_v4_settings", PARTIAL_KEY="mkt_v4_partial", AI_EVENTS_KEY="mkt_v4_ai_events";
+const CACHE_TTL = 7*24*60*60*1000;
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
+const RATE_LIMIT_WAIT = 65000;
+
+// ── Storage ───────────────────────────────────────────────────────────────────
+const store = {
+  get: k => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch { return null; } },
+  set: (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} },
+};
+const loadCache = () => { const d=store.get(CACHE_KEY); if(!d) return null; if(Date.now()-d.timestamp>CACHE_TTL) return null; return d; };
+const loadSettings = () => store.get(SETTINGS_KEY)||{};
+const loadHistory = () => store.get(HISTORY_KEY)||[];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const pc = v => (v==null||isNaN(v))?"neu":v>0?"pos":v<0?"neg":"neu";
+const fp = v => (v==null||isNaN(v))?"N/A":(v>0?"+":"")+v.toFixed(2)+"%";
+const sentColor = s => s>=1.5?"#3fb950":s>=0.5?"#56d364":s>-0.5?"#e3b341":s>-1.5?"#f0883e":"#f85149";
+const sentLabel = s => s>=1.5?"BULLISH":s>=0.5?"LEAN BULL":s>-0.5?"NEUTRAL":s>-1.5?"LEAN BEAR":"BEARISH";
+const mom = m => m==="up"?"↑":m==="down"?"↓":"→";
+const heatColor = s => s>=1.5?{bg:"rgba(63,185,80,.2)",col:"#3fb950"}:s>=0.5?{bg:"rgba(86,211,100,.13)",col:"#56d364"}:s>-0.5?{bg:"rgba(227,179,65,.13)",col:"#e3b341"}:s>-1.5?{bg:"rgba(240,136,62,.13)",col:"#f0883e"}:{bg:"rgba(248,81,73,.18)",col:"#f85149"};
+
+// ── Alpha Vantage ─────────────────────────────────────────────────────────────
+function isRateLimited(j) {
+  const note = j["Note"]||j["Information"]||"";
+  return !!(note&&(note.includes("call frequency")||note.includes("API call volume")||note.includes("subscribe")));
+}
+function isPremiumError(j) { return !!(j["Information"]&&j["Information"].includes("premium")); }
+
+// Stooq.com — free, no API key, no CORS issues, full history
+// Used by pandas-datareader, no registration needed
+const STOOQ_MAP = {"SPY": "spy.us", "QQQ": "qqq.us", "DIA": "dia.us", "IWM": "iwm.us", "XLK": "xlk.us", "XLV": "xlv.us", "XLF": "xlf.us", "XLE": "xle.us", "XLY": "xly.us", "XLP": "xlp.us", "XLI": "xli.us", "XLB": "xlb.us", "XLRE": "xlre.us", "XLU": "xlu.us", "XLC": "xlc.us", "VEU": "veu.us", "EEM": "eem.us", "VGK": "vgk.us", "VPL": "vpl.us", "GLD": "gld.us", "SLV": "slv.us", "USO": "uso.us", "COPA": "copa.us", "DJP": "djp.us", "VIX": "^vix"};
+
+async function fetchStooq(ticker) {
+  const sym = STOOQ_MAP[ticker] || (ticker.toLowerCase()+".us");
+  // Call our own Netlify proxy function — no CORS issues
+  const url = `/.netlify/functions/proxy?ticker=${encodeURIComponent(sym)}`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if(!r.ok) throw new Error(`Proxy HTTP ${r.status} for ${ticker}`);
+  const text = await r.text();
+  if(text.includes("No data") || text.includes("error") || text.trim().split("\n").length < 3) {
+    throw new Error("No data for "+ticker);
+  }
+  // Parse CSV: Date,Open,High,Low,Close,Volume
+  const lines = text.trim().split("\n").slice(1); // skip header
+  const pairs = lines.map(line => {
+    const cols = line.split(",");
+    return { date: cols[0].trim(), close: parseFloat(cols[4]) };
+  }).filter(p => p.date && !isNaN(p.close));
+  if(pairs.length === 0) throw new Error("Empty data for "+ticker);
+  return pairs; // sorted oldest→newest
+}
+
+async function fetchTicker(ticker, _key, onWait) {
+  const pairs = await fetchStooq(ticker);
+  const latest = pairs[pairs.length-1].close;
+  const perf = n => {
+    const idx = Math.max(0, pairs.length-1-n);
+    const old = pairs[idx].close;
+    if(!old) return null;
+    return ((latest-old)/old)*100;
+  };
+  return {
+    ticker, price:latest,
+    w1:perf(5), m1:perf(21), m3:perf(63), m6:perf(126), y1:perf(252)
+  };
+}
+
+async function fetchGoldSpot(avKey) {
+  // Use GLD ETF data as proxy since XAU currency endpoint is unreliable on free tier
+  // We already have GLD in perfData — this just returns null and we use GLD price instead
+  return null;
+}
+
+// ── Groq ──────────────────────────────────────────────────────────────────────
+async function groq(apiKey, prompt, onWait) {
+  for(let attempt=0; attempt<4; attempt++) {
+    const r = await fetch(GROQ_URL, {
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${apiKey}`},
+      body:JSON.stringify({ model:GROQ_MODEL, messages:[{role:"user",content:prompt}], temperature:0.4, max_tokens:1200 })
+    });
+    const j = await r.json();
+    if(j.error) {
+      const msg = j.error.message||"";
+      const waitMatch = msg.match(/try again in ([d.]+)s/);
+      const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1]))+2 : 15;
+      if(msg.includes("rate_limit")||msg.includes("Rate limit")||msg.includes("TPM")||msg.includes("tokens per minute")) {
+        if(attempt<3) { onWait&&onWait(`Groq rate limit — waiting ${waitSec}s...`); await new Promise(res=>setTimeout(res,waitSec*1000)); continue; }
+      }
+      throw new Error(msg);
+    }
+    return j.choices?.[0]?.message?.content||"";
+  }
+}
+
+async function analyzeSector(apiKey, sector, perfData, onWait) {
+  const p = perfData[sector.id];
+  const ps = p?`1W:${fp(p.w1)} 1M:${fp(p.m1)} 3M:${fp(p.m3)} 6M:${fp(p.m6)} 1Y:${fp(p.y1)}`:"No price data";
+  const raw = await groq(apiKey,
+    `You are a senior financial analyst writing a weekly market intelligence report. Today's date: ${new Date().toDateString()}.
+Analyze the ${sector.name} sector (ETF: ${sector.id}).
+ETF Performance data: ${ps}
+
+Focus on: (1) what actually drove performance over the PAST MONTH, (2) how recent macro events affected this sector, (3) specific companies or sub-industries leading or lagging, (4) concrete earnings results or upcoming reports THIS WEEK with expected EPS/revenue if known, (5) long-term structural trend (12-24 month view).
+
+For topGainer and topLoser: name REAL, SPECIFIC ticker symbols of stocks that moved significantly in this sector recently, with approximate % move.
+
+Respond ONLY with valid JSON, no markdown, no backticks:
+{"score":<float -2 to 2>,"momentum":<"up"|"down"|"flat">,"pulse":"<4-5 specific sentences about what drove performance this past month, name companies/events>","subindustry":"<1-2 sentences on the most interesting sub-sector right now with specific names>","earnings":"<specific company names and tickers reporting THIS week with expected results, or 'No major sector earnings this week' if genuinely none>","georisk":<null or "<specific geopolitical risk text with countries/events named>">,"topMovers":[{"ticker":"<ticker>","pct":<number>,"dir":"up"},{"ticker":"<ticker>","pct":<number>,"dir":"up"},{"ticker":"<ticker>","pct":<number>,"dir":"up"},{"ticker":"<ticker>","pct":<number>,"dir":"down"},{"ticker":"<ticker>","pct":<number>,"dir":"down"},{"ticker":"<ticker>","pct":<number>,"dir":"down"}],"outlook":"<2 sentences: near-term catalyst and 12-24 month structural view>"}`
+  , onWait);
+  try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
+  catch { return {score:0,momentum:"flat",pulse:raw.slice(0,300),subindustry:"",earnings:"No data",georisk:null,topMovers:[],outlook:""}; }
+}
+
+async function analyzeMacro(apiKey) {
+  const raw = await groq(apiKey,
+    `You are a senior macro economist. Today's date: ${new Date().toDateString()}.
+Write a weekly macro briefing for retail investors who understand basic finance.
+
+Be SPECIFIC: use actual current data points, name real events, give concrete numbers.
+Focus on: (1) latest CPI print and trend over past 3 months, (2) Fed's current stance and what they said at the last meeting, (3) GDP growth trajectory and whether recession risk is rising or falling, (4) one key macro theme dominating markets this month and how it affects long-term trends.
+
+Respond ONLY with valid JSON, no markdown:
+{"cpi":"<actual latest CPI figure e.g. 3.2% YoY>","cpiNote":"<2 sentences: latest reading, 3-month trend, what it means for Fed>","rates":"<actual Fed funds rate range>","ratesNote":"<2 sentences: current stance, what recent Fed meeting said, next expected move>","gdp":"<latest GDP growth rate>","gdpNote":"<2 sentences: trajectory, recession risk assessment>","overallTone":<"Risk-On"|"Risk-Off"|"Mixed">,"macroSummary":"<3-4 sentences covering the dominant macro theme this month and its long-term investment implications — be specific about sectors/assets affected>"}`
+  );
+  try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
+  catch { return {cpi:"N/A",cpiNote:"",rates:"N/A",ratesNote:"",gdp:"N/A",gdpNote:"",overallTone:"Mixed",macroSummary:raw.slice(0,300)}; }
+}
+
+async function analyzeComm(apiKey, perfData, onWait) {
+  const p = k => perfData[k]?`price $${perfData[k].price?.toFixed(2)}, 1W:${fp(perfData[k].w1)}, 1M:${fp(perfData[k].m1)}, 3M:${fp(perfData[k].m3)}`:"N/A";
+  const raw = await groq(apiKey,
+    `You are a commodities analyst. Today's date: ${new Date().toDateString()}.
+Write a weekly commodities briefing for retail investors. Be specific — name real events, supply/demand dynamics, geopolitical drivers.
+
+Current ETF data:
+GLD (Gold): ${p("GLD")}
+USO (Oil): ${p("USO")}  
+SLV (Silver): ${p("SLV")}
+COPA (Copper): ${p("COPA")}
+DJP (Broad Commodities): ${p("DJP")}
+
+Focus on: (1) what specifically drove gold over the PAST MONTH — central bank buying, dollar moves, real yields, geopolitics, (2) oil price drivers — OPEC decisions, demand outlook, inventory data, (3) copper as economic indicator — what it signals about global growth right now, (4) long-term commodity cycle view (1-2 year).
+
+Respond ONLY with valid JSON, no markdown:
+{"goldNote":"<3 sentences: specific drivers of gold's past month move, long-term outlook>","oilNote":"<3 sentences: OPEC stance, demand/supply dynamics, price outlook>","silverNote":"<2 sentences: industrial vs safe-haven demand split>","copperNote":"<2 sentences: what copper is signaling about global growth right now>","commoditySummary":"<3-4 sentences: overall commodity cycle view and long-term implications for investors>"}`
+  , onWait);
+  try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
+  catch { return {goldNote:"",oilNote:"",silverNote:"",copperNote:"",commoditySummary:raw.slice(0,300)}; }
+}
+
+
+async function analyzeWeeklyEvents(apiKey, macro, onWait) {
+  const raw = await groq(apiKey,
+    `You are a financial historian with very high standards for what constitutes a chart-worthy market event. Today: ${new Date().toDateString()}.
+
+Your job is to identify events from THIS WEEK that are significant enough to mark on a 5-year market chart — the kind of events that historians will still reference years from now.
+
+STRICT criteria — only include if ALL of these are true:
+1. The event caused or will cause a measurable shift in asset prices across multiple sectors
+2. It represents a genuine structural change, not just noise or routine data
+3. A person looking at a 5-year chart in 2030 would want to know this event happened
+
+Examples of QUALIFYING events: Fed policy pivots, war declarations, financial system crises, pandemic-level shocks, major trade/tariff regime changes, sovereign debt crises, central bank emergency interventions.
+
+Examples that DO NOT qualify: routine CPI prints (unless shocking surprise), individual company earnings, weekly jobless claims, minor geopolitical tensions, market volatility without structural cause.
+
+Macro context: ${macro?.macroSummary||"N/A"}
+
+If nothing qualifying happened this week, return an empty array — this is the EXPECTED and CORRECT response most weeks.
+Maximum 1 event per week. Only add if genuinely significant.
+
+Respond ONLY with valid JSON array, no markdown:
+[{"date":"<YYYY-MM-DD>","label":"<max 35 chars, factual>","tier":"major","color":<"#f85149"|"#3fb950"|"#e3b341"|"#f0883e">,"source":"<publication name e.g. Reuters, Fed.gov, WSJ>","sourceUrl":"<actual URL of primary source>","detail":"<1-2 sentences explaining why this is chart-worthy>"}]
+
+Use: #f85149=crisis/risk, #3fb950=relief/positive, #e3b341=policy/neutral, #f0883e=warning`
+  , onWait);
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+    if(!Array.isArray(parsed)) return [];
+    // Extra safety: cap at 1 event per run
+    return parsed.slice(0,1);
+  } catch { return []; }
+}
+
+// ── Chart component ───────────────────────────────────────────────────────────
+function LineChartCanvas({ data, color="#00d9ff", yDomain, unit="" }) {
+  const ref = useRef(null), chartRef = useRef(null);
+  useEffect(() => {
+    if(!ref.current||!data||data.length<2) return;
+    if(chartRef.current) chartRef.current.destroy();
+    const ctx = ref.current.getContext("2d");
+    const min = yDomain?yDomain[0]:Math.min(...data.map(d=>d.value))*1.1;
+    const max = yDomain?yDomain[1]:Math.max(...data.map(d=>d.value))*1.1;
+    chartRef.current = new Chart(ctx, {
+      type:"line",
+      data:{ labels:data.map(d=>d.label), datasets:[{ data:data.map(d=>d.value), borderColor:color, backgroundColor:color+"18", borderWidth:2, pointRadius:3, pointBackgroundColor:color, fill:true, tension:0.3 }] },
+      options:{ responsive:true, maintainAspectRatio:false, animation:false,
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c=>(c.raw+(unit||"")) } } },
+        scales:{ x:{ ticks:{color:"#484f58",font:{size:10,family:"Inter"}}, grid:{color:"#21262d"} }, y:{ min, max, ticks:{color:"#484f58",font:{size:10,family:"Inter"}}, grid:{color:"#21262d"} } }
+      }
+    });
+    return () => { if(chartRef.current) chartRef.current.destroy(); };
+  }, [data,color]);
+  if(!data||data.length<2) return <div className="empty" style={{padding:20}}>Generate at least 2 reports to see trend lines.</div>;
+  return <div className="chart-wrap"><canvas ref={ref}/></div>;
+}
+
+
+
+
+// ── UI Components ─────────────────────────────────────────────────────────────
+function SentimentBar({ score, momentum }) {
+  const pct = ((score+2)/4)*100, col = sentColor(score);
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+        <span style={{fontSize:12,color:col,fontWeight:700,letterSpacing:.5}}>{sentLabel(score)}</span>
+        <span style={{fontSize:16}}>{mom(momentum)}</span>
+      </div>
+      <div className="sent-track"><div className="sent-fill" style={{width:pct+"%",background:col}}/></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text3)",marginTop:4}}>
+        <span>-2 Bearish</span><span>0</span><span>Bullish +2</span>
+      </div>
+    </div>
+  );
+}
+
+function BenchCard({ item, data }) {
+  const d = data?.[item.id];
+  return (
+    <div className="bench-card">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div><div className="bench-name">{item.name}</div><div className="bench-ticker">{item.id}</div></div>
+        {d&&<span className={`perf ${pc(d.w1)}`} style={{fontSize:13}}>{fp(d.w1)}</span>}
+      </div>
+      {d&&<div className="bench-price">${d.price?.toFixed(2)}</div>}
+      <div style={{marginTop:10}}>
+        {[["1M",d?.m1],["3M",d?.m3],["6M",d?.m6],["1Y",d?.y1]].map(([p,v])=>(
+          <div key={p} className="bench-perf-row">
+            <span className="bench-perf-label">{p}</span>
+            <span className={`perf ${pc(v)}`} style={{fontSize:11}}>{fp(v)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TopMovers({ movers }) {
+  if(!movers||movers.length===0) return null;
+  const up = movers.filter(m=>m.dir==="up").slice(0,3);
+  const down = movers.filter(m=>m.dir==="down").slice(0,3);
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <div>
+        <div className="expanded-label" style={{color:"var(--green)",marginBottom:6}}>↑ Top Gainers</div>
+        {up.map((m,i)=>(
+          <div key={i} className="mover-row">
+            <span className="mover-ticker" style={{color:"var(--text)"}}>{m.ticker}</span>
+            <span className="mover-pct" style={{color:"var(--green)"}}>+{Math.abs(m.pct).toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+      <div>
+        <div className="expanded-label" style={{color:"var(--red)",marginBottom:6}}>↓ Top Losers</div>
+        {down.map((m,i)=>(
+          <div key={i} className="mover-row">
+            <span className="mover-ticker" style={{color:"var(--text)"}}>{m.ticker}</span>
+            <span className="mover-pct" style={{color:"var(--red)"}}>-{Math.abs(m.pct).toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+
+
+function SectorCard({ sector, perf, analysis }) {
+  const [open, setOpen] = useState(false);
+  const p = perf?.[sector.id], a = analysis?.[sector.id];
+  return (
+    <div className={`sector-card ${open?"expanded":""}`} onClick={()=>setOpen(o=>!o)}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <span style={{fontSize:18}}>{sector.emoji}</span>
+            <div>
+              <div className="sector-name">{sector.name}</div>
+              <div className="sector-ticker">{sector.id}</div>
+            </div>
+          </div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          {p&&<div className={`perf ${pc(p.w1)}`} style={{fontSize:14}}>{fp(p.w1)}</div>}
+          <div style={{fontSize:10,color:"var(--text3)"}}>1W</div>
+        </div>
+      </div>
+      {p&&(
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+          {[["1M",p.m1],["3M",p.m3],["6M",p.m6],["1Y",p.y1]].map(([per,val])=>(
+            <span key={per} style={{display:"inline-flex",flexDirection:"column",alignItems:"center",gap:2}}>
+              <span style={{fontSize:10,color:"var(--text3)"}}>{per}</span>
+              <span className={`perf ${pc(val)}`} style={{fontSize:11}}>{fp(val)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {a&&<SentimentBar score={a.score} momentum={a.momentum}/>}
+      {open&&a&&(
+        <div onClick={e=>e.stopPropagation()}>
+          <div className="sector-divider"/>
+          <div className="expanded-section">
+            <div className="expanded-label">Monthly Pulse</div>
+            <div className="expanded-text">{a.pulse}</div>
+          </div>
+          {a.subindustry&&<div className="expanded-section">
+            <div className="expanded-label">Sub-Industry Spotlight</div>
+            <div className="expanded-text">{a.subindustry}</div>
+          </div>}
+          <div className="expanded-section">
+            <div className="expanded-label">Earnings Watch This Week</div>
+            <div className="expanded-text">{a.earnings}</div>
+          </div>
+          {a.georisk&&<div className="expanded-section"><div className="risk-flag">⚠️ {a.georisk}</div></div>}
+          {a.topMovers&&a.topMovers.length>0&&<div className="expanded-section">
+            <div className="expanded-label">Top Movers This Week</div>
+            <TopMovers movers={a.topMovers}/>
+          </div>}
+          {a.outlook&&<div className="expanded-section">
+            <div className="expanded-label">Outlook (Near-term & Structural)</div>
+            <div className="expanded-text" style={{color:"var(--accent)"}}>{a.outlook}</div>
+          </div>}
+        </div>
+      )}
+      <div style={{textAlign:"right",marginTop:10,fontSize:11,color:"var(--text3)"}}>{open?"▲ collapse":"▼ expand for full analysis"}</div>
+    </div>
+  );
+}
+
+function Heatmap({ sectors, analysis }) {
+  return (
+    <div className="heatmap">
+      {sectors.map(s=>{
+        const score = analysis?.[s.id]?.score??0;
+        const {bg,col} = heatColor(score);
+        return (
+          <div key={s.id} className="heatmap-cell" style={{background:bg}} title={`${s.name}: ${score}`}>
+            <div className="heatmap-cell-emoji">{s.emoji}</div>
+            <div className="heatmap-cell-name" style={{color:col}}>{s.name}</div>
+            <div className="heatmap-cell-ticker" style={{color:col}}>{s.id}</div>
+            <div className="heatmap-cell-score" style={{color:col}}>{score>0?"+":""}{score}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RotationSignal({ sectors, analysis }) {
+  if(!analysis) return null;
+  const sorted = [...sectors].sort((a,b)=>{
+    const sa=analysis[a.id],sb=analysis[b.id];
+    return ((sb?.score??0)+(sb?.momentum==="up"?.5:0))-((sa?.score??0)+(sa?.momentum==="up"?.5:0));
+  });
+  return (
+    <div className="rotation-grid">
+      <div>
+        <div className="rotation-col-title" style={{color:"var(--green)"}}>🔥 Heating Up</div>
+        {sorted.slice(0,4).map(s=>{
+          const a=analysis[s.id];
+          return <div key={s.id} className="rotation-item">
+            <span style={{fontSize:16}}>{s.emoji}</span>
+            <span style={{flex:1,fontWeight:600}}>{s.name}</span>
+            <span style={{color:sentColor(a?.score??0),fontSize:12,fontFamily:"var(--font-mono)"}}>{mom(a?.momentum)} {a?.score??0}</span>
+          </div>;
+        })}
+      </div>
+      <div>
+        <div className="rotation-col-title" style={{color:"var(--red)"}}>❄️ Cooling Down</div>
+        {sorted.slice(-4).reverse().map(s=>{
+          const a=analysis[s.id];
+          return <div key={s.id} className="rotation-item">
+            <span style={{fontSize:16}}>{s.emoji}</span>
+            <span style={{flex:1,fontWeight:600}}>{s.name}</span>
+            <span style={{color:sentColor(a?.score??0),fontSize:12,fontFamily:"var(--font-mono)"}}>{mom(a?.momentum)} {a?.score??0}</span>
+          </div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HistoryTab({ history }) {
+  const [sel, setSel] = useState(SECTORS[0].id);
+  if(!history||history.length===0) return <div className="empty">No history yet. Generate your first report to start tracking.</div>;
+  const sentData = history.map(h=>({ label:new Date(h.timestamp).toLocaleDateString("en-US",{month:"short",day:"numeric"}), value:h.sectorScores?.[sel]??null })).filter(d=>d.value!==null);
+  const perfData = history.map(h=>({ label:new Date(h.timestamp).toLocaleDateString("en-US",{month:"short",day:"numeric"}), value:h.perfSnapshots?.[sel]?.w1??null })).filter(d=>d.value!==null);
+  return (
+    <div className="gap-20">
+      <div className="card">
+        <div className="card-title">Sector Sentiment History</div>
+        <div className="history-controls">
+          {SECTORS.map(s=><button key={s.id} className={`hist-btn ${sel===s.id?"active":""}`} onClick={()=>setSel(s.id)}>{s.emoji} {s.id}</button>)}
+        </div>
+        <LineChartCanvas data={sentData} color="#00d9ff" yDomain={[-2,2]}/>
+      </div>
+      <div className="card">
+        <div className="card-title">Weekly 1W Return History — {sel}</div>
+        <LineChartCanvas data={perfData} color="#3fb950" unit="%"/>
+      </div>
+      <div className="card">
+        <div className="card-title">Report Archive ({history.length} weeks)</div>
+        {[...history].reverse().map((h,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid var(--border)",fontSize:13}}>
+            <span style={{color:"var(--text2)"}}>{new Date(h.timestamp).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}</span>
+            <span style={{color:"var(--text3)"}}>{Object.keys(h.sectorScores||{}).length} sectors tracked</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SettingsTab({ settings, onSave, onClearCache, onClearHistory, cacheInfo }) {
+  const [av,setAv]=useState(settings.avKey||"");
+  const [gm,setGm]=useState(settings.gmKey||"");
+  const [saved,setSaved]=useState(false);
+  const save = () => { onSave({avKey:av,gmKey:gm}); setSaved(true); setTimeout(()=>setSaved(false),2000); };
+  return (
+    <div className="settings-wrap">
+      <div className="setting-group">
+        <div className="setting-label">Price Data</div>
+        <div className="setting-desc" style={{color:"var(--green)"}}>✓ No API key needed — price data comes from Stooq.com (free, no registration, full 20-year history). Works automatically.</div>
+      </div>
+      <div className="setting-group">
+        <div className="setting-label">Groq API Key</div>
+        <div className="setting-desc">Powers AI analysis and sentiment scoring. Free at console.groq.com — no credit card required.</div>
+        <input className="setting-input" type="password" value={gm} onChange={e=>setGm(e.target.value)} placeholder="Your Groq API key..."/>
+        {gm && <div style={{fontSize:11,color:"var(--text3)",marginTop:6}}>Key preview: {gm.slice(0,4)}...{gm.slice(-4)} ({gm.length} chars)</div>}
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <button className="btn btn-primary" onClick={save}>{saved?"✓ Saved":"Save Keys"}</button>
+      </div>
+      <div className="setting-group">
+        <div className="setting-label">Cache & Data</div>
+        <div className="setting-desc">{cacheInfo?`Last fetched: ${new Date(cacheInfo).toLocaleString()}. Auto-expires after 7 days.`:"No cache yet — report not generated."}</div>
+        <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+          <button className="btn btn-ghost" onClick={onClearCache}>Clear Cache</button>
+          <button className="btn btn-ghost" onClick={()=>{store.del(PARTIAL_KEY);alert("Partial save cleared.");}}>Clear Partial Save</button>
+          <button className="btn btn-danger" onClick={onClearHistory}>Clear History</button>
+        </div>
+      </div>
+      <div className="setting-group" style={{fontSize:12,color:"var(--text3)",lineHeight:1.7}}>
+        <div className="setting-label">Security Note</div>
+        Keys stored in your browser's localStorage on this device only. Sent directly to Alpha Vantage and Groq — nowhere else.
+      </div>
+    </div>
+  );
+}
+
+
+// ── Market Events Library ─────────────────────────────────────────────────────
+const MARKET_EVENTS_MAJOR = [
+  // ── Pre-GFC ──────────────────────────────────────────────────────────────
+  { date:"2000-03-10", label:"Dot-com Bubble Peak", color:"#f85149" },
+  { date:"2001-09-11", label:"9/11 Attacks", color:"#f85149" },
+  { date:"2002-10-09", label:"Dot-com Bottom", color:"#3fb950" },
+  { date:"2007-06-22", label:"Bear Stearns Funds Collapse", color:"#f85149" },
+  // ── Global Financial Crisis ───────────────────────────────────────────────
+  { date:"2008-03-17", label:"Bear Stearns Bailout", color:"#f85149" },
+  { date:"2008-09-07", label:"Fannie/Freddie Nationalized", color:"#f85149" },
+  { date:"2008-09-15", label:"Lehman Brothers Collapse", color:"#f85149" },
+  { date:"2008-09-29", label:"Congress Rejects TARP", color:"#f85149" },
+  { date:"2008-10-13", label:"TARP $700B Approved", color:"#e3b341" },
+  { date:"2009-03-09", label:"GFC Market Bottom", color:"#3fb950" },
+  { date:"2009-03-18", label:"Fed Launches QE1", color:"#3fb950" },
+  // ── Post-Crisis & Recovery ────────────────────────────────────────────────
+  { date:"2010-05-06", label:"Flash Crash", color:"#f0883e" },
+  { date:"2010-11-03", label:"Fed Launches QE2", color:"#3fb950" },
+  { date:"2011-08-05", label:"US Credit Downgrade (S&P)", color:"#f0883e" },
+  { date:"2012-07-26", label:"Draghi: Whatever It Takes", color:"#3fb950" },
+  { date:"2012-09-13", label:"Fed Launches QE3", color:"#3fb950" },
+  { date:"2013-05-22", label:"Taper Tantrum", color:"#f0883e" },
+  { date:"2015-08-24", label:"China Black Monday", color:"#f85149" },
+  { date:"2015-12-16", label:"Fed First Rate Hike (Post-GFC)", color:"#e3b341" },
+  { date:"2016-06-23", label:"Brexit Vote", color:"#e3b341" },
+  { date:"2016-11-08", label:"Trump Election 2016", color:"#e3b341" },
+  // ── 2018-2019 ─────────────────────────────────────────────────────────────
+  { date:"2018-02-05", label:"Volmageddon VIX Spike", color:"#f0883e" },
+  { date:"2018-12-24", label:"Christmas Eve Crash Bottom", color:"#3fb950" },
+  { date:"2019-08-14", label:"Yield Curve Inverts", color:"#f0883e" },
+  // ── COVID Era ─────────────────────────────────────────────────────────────
+  { date:"2020-02-19", label:"COVID Crash Begins", color:"#f85149" },
+  { date:"2020-03-16", label:"Fed Emergency Cut to Zero", color:"#e3b341" },
+  { date:"2020-03-23", label:"COVID Market Bottom", color:"#3fb950" },
+  { date:"2020-03-27", label:"CARES Act $2.2T Signed", color:"#3fb950" },
+  { date:"2020-04-20", label:"Oil Futures Go Negative", color:"#f85149" },
+  { date:"2020-11-09", label:"Pfizer Vaccine Announced", color:"#3fb950" },
+  // ── 2021-2022 Inflation Era ───────────────────────────────────────────────
+  { date:"2021-01-27", label:"GameStop/Meme Stock Mania", color:"#e3b341" },
+  { date:"2021-11-30", label:"Fed Taper Announced", color:"#e3b341" },
+  { date:"2022-01-05", label:"Fed Rate Hike Cycle Begins", color:"#f0883e" },
+  { date:"2022-02-24", label:"Russia Invades Ukraine", color:"#f85149" },
+  { date:"2022-06-10", label:"CPI Peaks at 9.1%", color:"#f85149" },
+  { date:"2022-08-26", label:"Jackson Hole Hawkish Pivot", color:"#f0883e" },
+  { date:"2022-09-28", label:"UK Gilt Crisis / LDI", color:"#f85149" },
+  // ── 2023-2024 ─────────────────────────────────────────────────────────────
+  { date:"2023-03-10", label:"SVB Bank Collapse", color:"#f85149" },
+  { date:"2023-05-01", label:"First Republic Fails", color:"#f85149" },
+  { date:"2023-07-26", label:"Fed Final Rate Hike", color:"#e3b341" },
+  { date:"2023-10-07", label:"Israel-Hamas War Begins", color:"#f85149" },
+  { date:"2024-08-05", label:"Yen Carry Trade Unwind", color:"#f85149" },
+  { date:"2024-09-18", label:"Fed Begins Rate Cuts", color:"#3fb950" },
+  { date:"2024-11-05", label:"Trump Election 2024", color:"#e3b341" },
+  // ── 2025 ──────────────────────────────────────────────────────────────────
+  { date:"2025-01-20", label:"Trump Inauguration / Tariff Era", color:"#e3b341" },
+  { date:"2025-04-02", label:"US Liberation Day Tariffs", color:"#f85149" },
+  { date:"2025-04-09", label:"90-Day Tariff Pause", color:"#3fb950" },
+];
+
+// "All" events = same list — already comprehensive. Major = key structural turning points only.
+const MARKET_EVENTS_ALL = MARKET_EVENTS_MAJOR;
+
+// Major-only filter (shown when user selects "Major" toggle)
+const MARKET_EVENTS_MAJOR_FILTER = [
+  "Dot-com Bubble Peak","9/11 Attacks","Dot-com Bottom",
+  "Lehman Brothers Collapse","GFC Market Bottom","Fed Launches QE1",
+  "Flash Crash","US Credit Downgrade (S&P)","Draghi: Whatever It Takes",
+  "China Black Monday","Brexit Vote","Trump Election 2016",
+  "COVID Crash Begins","Fed Emergency Cut to Zero","COVID Market Bottom",
+  "Pfizer Vaccine Announced","Russia Invades Ukraine","CPI Peaks at 9.1%",
+  "SVB Bank Collapse","Fed Begins Rate Cuts","Trump Election 2024",
+  "US Liberation Day Tariffs",
+];
+
+// ── Asset color palette ───────────────────────────────────────────────────────
+const INDICATORS = ["VIX","UMCSENT"];
+const INDICATOR_SCALES = { "VIX":{ min:0, max:80, label:"VIX (Fear)", yAxisID:"yRight" }, "UMCSENT":{ min:40, max:120, label:"Consumer Sentiment", yAxisID:"yRight2" } };
+const ASSET_COLORS = {
+  SPY:"#00d9ff", QQQ:"#58a6ff", DIA:"#bc8cff", IWM:"#e3b341",
+  XLK:"#3fb950", XLV:"#56d364", XLF:"#0096b2", XLE:"#f85149",
+  XLY:"#ff7b72", XLP:"#ffa657", XLI:"#79c0ff", XLB:"#d2a8ff",
+  XLRE:"#ff8800", XLU:"#00ff41", XLC:"#00b4d8",
+  VEU:"#f0883e", EEM:"#ff6b6b", VGK:"#4ecdc4", VPL:"#45b7d1",
+  GLD:"#ffd700", SLV:"#c0c0c0", USO:"#8b4513", COPA:"#cd7f32", DJP:"#808080",
+  VIX:"#ff4d4d", UMCSENT:"#bc8cff",
+};
+
+const ALL_ASSETS = [
+  { group:"US Benchmarks", tickers:["SPY","QQQ","DIA","IWM"] },
+  { group:"Sectors", tickers:["XLK","XLV","XLF","XLE","XLY","XLP","XLI","XLB","XLRE","XLU","XLC"] },
+  { group:"Global", tickers:["VEU","EEM","VGK","VPL"] },
+  { group:"Commodities", tickers:["GLD","SLV","USO","COPA","DJP"] },
+  { group:"Indicators (Right Axis)", tickers:["VIX","UMCSENT"] },
+];
+
+const WINDOWS = ["1M","3M","6M","1Y","3Y","5Y","10Y","20Y"];
+const WINDOW_DAYS = { "1M":21, "3M":63, "6M":126, "1Y":252, "3Y":756, "5Y":1260, "10Y":2520, "20Y":5040 };
+
+// ── Normalize prices to % return from period start ────────────────────────────
+function normalizeSeries(dates, prices, windowDays, relTicker=null, allPrices={}) {
+  if(!prices||prices.length===0) return [];
+  const n = Math.min(windowDays, prices.length);
+  const slice = prices.slice(prices.length - n);
+  const base = slice[0];
+  if(!base) return [];
+  if(relTicker && allPrices[relTicker]) {
+    const relPrices = allPrices[relTicker];
+    const relSlice = relPrices.slice(relPrices.length - n);
+    const relBase = relSlice[0];
+    return slice.map((p,i) => {
+      const absReturn = ((p - base) / base) * 100;
+      const relReturn = relSlice[i] ? (((relSlice[i] - relBase) / relBase) * 100) : 0;
+      return parseFloat((absReturn - relReturn).toFixed(3));
+    });
+  }
+  return slice.map(p => parseFloat((((p - base) / base) * 100).toFixed(3)));
+}
+
+function getDateSlice(allDates, windowDays) {
+  const n = Math.min(windowDays, allDates.length);
+  return allDates.slice(allDates.length - n);
+}
+
+// ── Correlation calculation ───────────────────────────────────────────────────
+function pearsonCorr(a, b) {
+  const n = Math.min(a.length, b.length);
+  if(n < 5) return null;
+  const ax = a.slice(a.length-n), bx = b.slice(b.length-n);
+  const ma = ax.reduce((s,v)=>s+v,0)/n, mb = bx.reduce((s,v)=>s+v,0)/n;
+  let num=0, da=0, db=0;
+  for(let i=0;i<n;i++) { num+=(ax[i]-ma)*(bx[i]-mb); da+=(ax[i]-ma)**2; db+=(bx[i]-mb)**2; }
+  const denom = Math.sqrt(da*db);
+  return denom===0 ? null : parseFloat((num/denom).toFixed(2));
+}
+
+function corrColor(v) {
+  if(v===null) return "var(--bg4)";
+  const abs = Math.abs(v);
+  if(v>0.7) return "rgba(63,185,80,0.3)";
+  if(v>0.3) return "rgba(63,185,80,0.15)";
+  if(v>-0.3) return "rgba(139,148,158,0.1)";
+  if(v>-0.7) return "rgba(248,81,73,0.15)";
+  return "rgba(248,81,73,0.3)";
+}
+
+
+// ── Bull / Bear regime (20% rule) ────────────────────────────────────────────
+function calcRegime(prices) {
+  // Returns array of "bull" | "bear" for each price index
+  if(!prices || prices.length === 0) return [];
+  const regime = new Array(prices.length).fill("bull");
+  let peak = prices[0], trough = prices[0];
+  let inBear = false;
+
+  for(let i = 1; i < prices.length; i++) {
+    const p = prices[i];
+    if(p === null) { regime[i] = regime[i-1]; continue; }
+
+    if(!inBear) {
+      if(p > peak) peak = p;
+      // Enter bear if down 20% from peak
+      if((p - peak) / peak <= -0.20) {
+        inBear = true;
+        trough = p;
+        // Mark back to where peak was (retroactive)
+        regime[i] = "bear";
+      } else {
+        regime[i] = "bull";
+      }
+    } else {
+      if(p < trough) trough = p;
+      // Exit bear if up 20% from trough
+      if((p - trough) / trough >= 0.20) {
+        inBear = false;
+        peak = p;
+        regime[i] = "bull";
+      } else {
+        regime[i] = "bear";
+      }
+    }
+  }
+  return regime;
+}
+
+function getRegimeSlice(prices, windowDays) {
+  const fullRegime = calcRegime(prices);
+  return fullRegime.slice(fullRegime.length - Math.min(windowDays, fullRegime.length));
+}
+
+// Build Chart.js background color plugin data for SPY regime
+function buildSpyBackgroundPlugin(spyRegime) {
+  if(!spyRegime || spyRegime.length === 0) return null;
+  // Returns a custom plugin that draws background bands
+  return {
+    id: "spyBackground",
+    beforeDraw(chart) {
+      const { ctx, chartArea: { top, bottom, left, right }, scales: { x } } = chart;
+      if(!x) return;
+      ctx.save();
+      let segStart = 0, curRegime = spyRegime[0];
+      const drawBand = (start, end, regime) => {
+        if(start >= end) return;
+        const x1 = x.getPixelForValue(start);
+        const x2 = x.getPixelForValue(end);
+        ctx.fillStyle = regime === "bull" ? "rgba(63,185,80,0.04)" : "rgba(248,81,73,0.07)";
+        ctx.fillRect(Math.min(x1,x2), top, Math.abs(x2-x1), bottom-top);
+      };
+      for(let i = 1; i < spyRegime.length; i++) {
+        if(spyRegime[i] !== curRegime) {
+          drawBand(segStart, i-1, curRegime);
+          segStart = i-1;
+          curRegime = spyRegime[i];
+        }
+      }
+      drawBand(segStart, spyRegime.length-1, curRegime);
+      ctx.restore();
+    }
+  };
+}
+
+// For each asset line: split into segments colored by regime
+function buildSegmentedDataset(ticker, normalizedData, assetRegime, baseColor) {
+  if(!assetRegime || assetRegime.length === 0) {
+    return { borderColor: baseColor, segment: undefined };
+  }
+  return {
+    borderColor: baseColor,
+    segment: {
+      borderColor: ctx => {
+        const idx = ctx.p0DataIndex;
+        const regime = assetRegime[idx];
+        if(regime === "bear") return "#c9484488"; // desaturated red-orange
+        return baseColor;
+      }
+    }
+  };
+}
+
+
+// ── Fetch UMCSENT from FRED (no key required) ─────────────────────────────────
+async function fetchFRED(seriesId) {
+  // FRED CSV endpoint — free, no API key needed
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
+  const r = await fetch(url);
+  const text = await r.text();
+  const lines = text.trim().split("\n").slice(1); // skip header
+  const dates = [], values = [];
+  lines.forEach(line => {
+    const [date, val] = line.split(",");
+    if(date && val && val.trim() !== ".") {
+      dates.push(date.trim());
+      values.push(parseFloat(val.trim()));
+    }
+  });
+  return { dates, values };
+}
+
+
+
+
+// ── ChartTab component ────────────────────────────────────────────────────────
+function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onDownload, aiEvents=[] }) {
+  const [priceData, setPriceData] = useState(hardcodedPrices||{});
+  const [dates, setDates] = useState(hardcodedPrices?._dates||[]);
+  const [fetching, setFetching] = useState(false);
+  const [fetchLog, setFetchLog] = useState([]);
+  const [fetchProgress, setFetchProgress] = useState(0);
+  const [activeAssets, setActiveAssets] = useState(["SPY"]);
+  const [window_, setWindow_] = useState("5Y");
+  const [mode, setMode] = useState("abs"); // abs | rel
+  const [events, setEvents] = useState("major"); // off | major | all
+  const [rangeResult, setRangeResult] = useState(null);
+  const [bakeReady, setBakeReady] = useState(false);
+  // aiEvents comes from parent App via prop — auto-updates when weekly report runs
+  const chartRef = useRef(null);
+  const chartInstanceRef = useRef(null);
+  const isDragging = useRef(false);
+  const dragStart = useRef(null);
+
+  const hasData = dates.length > 0 && Object.keys(priceData).length > 0;
+
+  // ── Fetch historical data ──────────────────────────────────────────────────
+  const fetchAll = useCallback(async() => {
+    if(!settings.avKey) { alert("Enter your Alpha Vantage key in Settings first."); return; }
+    setFetching(true);
+    setFetchLog([]);
+    const tick = msg => setFetchLog(l=>[...l.slice(-8),msg]);
+    const allTickers = ALL_ASSETS.flatMap(g=>g.tickers);
+    const newPrices = {};
+    let sharedDates = null;
+
+    for(let i=0; i<allTickers.length; i++) {
+      const t = allTickers[i];
+      tick(`Fetching ${t} (${i+1}/${allTickers.length})...`);
+      setFetchProgress(Math.round((i/allTickers.length)*100));
+      try {
+        const pairs = await fetchStooq(t);
+        const d = pairs.map(p=>p.date);
+        const prices = pairs.map(p=>p.close);
+        if(!sharedDates || d.length > sharedDates.length) sharedDates = d;
+        newPrices[t] = prices;
+        newPrices[t+"_dates"] = d;
+        tick(`✓ ${t} — ${pairs.length} days`);
+      } catch(e) {
+        tick(`⚠ ${t}: ${e.message}`);
+      }
+      if(i < allTickers.length-1) await new Promise(r=>setTimeout(r,800));
+    }
+
+    // Align all series to common dates using SPY as master
+    const masterDates = newPrices["SPY_dates"] || sharedDates || [];
+    const aligned = {};
+    for(const t of allTickers) {
+      if(!newPrices[t]) continue;
+      const tDates = newPrices[t+"_dates"]||[];
+      const dateMap = {};
+      tDates.forEach((d,i) => { dateMap[d] = newPrices[t][i]; });
+      aligned[t] = masterDates.map(d => dateMap[d]??null);
+    }
+    aligned._dates = masterDates;
+
+    // Fetch VIX from Yahoo Finance
+    tick("Fetching VIX (Fear Index)...");
+    await new Promise(r=>setTimeout(r,1500));
+    try {
+      const vixPairs = await fetchStooq("VIX");
+      const vResult = { timestamp: vixPairs.map(p=>new Date(p.date).getTime()/1000), indicators:{quote:[{close:vixPairs.map(p=>p.close)}]} };
+      if(vResult) {
+        const vPairs = vResult.timestamp.map((ts,i)=>({
+          date: new Date(ts*1000).toISOString().split("T")[0],
+          close: vResult.indicators.quote[0].close[i]
+        })).filter(p=>p.close!==null&&p.close!==undefined);
+        const vDateMap = {};
+        vPairs.forEach(p => { vDateMap[p.date] = p.close; });
+        aligned["VIX"] = masterDates.map(d => vDateMap[d]??null);
+        tick("VIX fetched ✓");
+      }
+    } catch(e) { tick("⚠ VIX: "+e.message); }
+
+    // Fetch UMCSENT from FRED (free, no key)
+    tick("Fetching Consumer Sentiment (FRED)...");
+    try {
+      const fred = await fetchFRED("UMCSENT");
+      if(fred.dates.length > 0) {
+        // UMCSENT is monthly — map to daily master dates (forward-fill)
+        const umMap = {};
+        fred.dates.forEach((d,i) => { umMap[d] = fred.values[i]; });
+        let lastVal = null;
+        aligned["UMCSENT"] = masterDates.map(d => {
+          if(umMap[d] !== undefined) lastVal = umMap[d];
+          return lastVal;
+        });
+        tick("Consumer Sentiment fetched ✓");
+      }
+    } catch(e) { tick("⚠ UMCSENT: "+e.message); }
+
+    setPriceData(aligned);
+    setDates(masterDates);
+    setBakeReady(true);
+    onBakeData(aligned);
+    setFetching(false);
+    setFetchProgress(100);
+    tick("✓ All done! Click Download Updated App to bake data.");
+  }, [settings.avKey, onBakeData]);
+
+  // ── Build chart ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if(!hasData || !chartRef.current) return;
+    if(chartInstanceRef.current) chartInstanceRef.current.destroy();
+
+    const windowDays = WINDOW_DAYS[window_];
+    const slicedDates = getDateSlice(dates, windowDays);
+    const relTicker = mode==="rel" ? "SPY" : null;
+
+    // Bull/bear: SPY regime for background
+    const spyPrices = priceData["SPY"];
+    const spyRegimeSlice = spyPrices ? getRegimeSlice(spyPrices, windowDays) : null;
+    const spyBgPlugin = spyRegimeSlice ? buildSpyBackgroundPlugin(spyRegimeSlice) : null;
+
+    // Separate indicators from price assets
+    const priceAssets = activeAssets.filter(t => !INDICATORS.includes(t));
+    const activeIndicators = activeAssets.filter(t => INDICATORS.includes(t));
+    const hasVIX = activeIndicators.includes("VIX");
+    const hasUMCSENT = activeIndicators.includes("UMCSENT");
+
+    // Build price asset datasets with per-asset regime coloring
+    const priceDatasets = priceAssets.map(ticker => {
+      const prices = priceData[ticker];
+      if(!prices) return null;
+      const normalized = normalizeSeries(dates, prices, windowDays, relTicker, priceData);
+      const assetRegime = getRegimeSlice(prices, windowDays);
+      const baseColor = ASSET_COLORS[ticker]||"#ffffff";
+      const segmented = buildSegmentedDataset(ticker, normalized, assetRegime, baseColor);
+      return {
+        label: ticker,
+        data: normalized,
+        backgroundColor: "transparent",
+        borderWidth: ticker==="SPY" ? 2.5 : 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.1,
+        yAxisID: "y",
+        ...segmented,
+      };
+    }).filter(Boolean);
+
+    // Build indicator datasets (raw values, right axes)
+    const indicatorDatasets = activeIndicators.map(ticker => {
+      const rawPrices = priceData[ticker];
+      if(!rawPrices) return null;
+      const n = Math.min(windowDays, rawPrices.length);
+      const sliced = rawPrices.slice(rawPrices.length - n).map(v => v===null?null:parseFloat(v.toFixed(2)));
+      const scale = INDICATOR_SCALES[ticker];
+      return {
+        label: scale.label,
+        data: sliced,
+        borderColor: ASSET_COLORS[ticker],
+        backgroundColor: ASSET_COLORS[ticker]+"18",
+        borderWidth: 1.8,
+        borderDash: [6,3],
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.3,
+        yAxisID: scale.yAxisID,
+        fill: ticker==="VIX" ? false : false,
+      };
+    }).filter(Boolean);
+
+    const datasets = [...priceDatasets, ...indicatorDatasets];
+
+    // Event annotations: hardcoded + AI-generated, merged and deduplicated
+    const hardcodedList = events==="all" ? MARKET_EVENTS_ALL : events==="major" ? MARKET_EVENTS_ALL.filter(e=>MARKET_EVENTS_MAJOR_FILTER.includes(e.label)) : [];
+    const aiFiltered = events!=="off" ? aiEvents.filter(e => events==="major" ? e.tier==="major" : true) : [];
+    const eventList = [...hardcodedList, ...aiFiltered].filter((ev,i,arr)=>
+      arr.findIndex(e=>e.date===ev.date&&e.label===ev.label)===i
+    ).sort((a,b)=>a.date.localeCompare(b.date));
+
+    const annotations = {};
+    eventList.forEach((ev,i) => {
+      const nearest = slicedDates.findIndex(d=>d>=ev.date);
+      if(nearest===-1) return;
+      const isAI = !!ev.tier; // AI events have tier field
+      annotations["ev"+i] = {
+        type:"line", xMin:nearest, xMax:nearest,
+        borderColor:ev.color+"bb", borderWidth: isAI ? 2 : 1.5,
+        borderDash: isAI ? [6,3] : [4,3],
+        label:{
+          display:true, content:(isAI?"★ ":"")+ev.label,
+          position:"start", color:ev.color,
+          font:{size:9,family:"Inter",weight:isAI?"700":"400"},
+          backgroundColor:"rgba(0,0,0,0.8)", padding:3
+        }
+      };
+    });
+
+    const plugins = [spyBgPlugin].filter(Boolean);
+    const ctx = chartRef.current.getContext("2d");
+    chartInstanceRef.current = new Chart(ctx, {
+      type:"line",
+      data:{ labels:slicedDates, datasets },
+      plugins,
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:false,
+        interaction:{ mode:"index", intersect:false },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            backgroundColor:"rgba(13,17,23,0.95)", borderColor:"#30363d", borderWidth:1,
+            titleColor:"#8b949e", bodyColor:"#e6edf3", titleFont:{size:11,family:"JetBrains Mono"},
+            bodyFont:{size:12,family:"JetBrains Mono"}, padding:10,
+            callbacks:{
+              title: items => {
+                const d = slicedDates[items[0].dataIndex];
+                const regime = spyRegimeSlice?.[items[0].dataIndex];
+                return d + (regime ? (regime==="bear"?" 🔴 Bear":" 🟢 Bull") : "");
+              },
+              label: item => {
+                const isInd = item.dataset.yAxisID && item.dataset.yAxisID !== "y";
+                if(isInd) return ` ${item.dataset.label}: ${item.raw?.toFixed(1)}`;
+                return ` ${item.dataset.label}: ${item.raw>0?"+":""}${item.raw?.toFixed(2)}%`;
+              }
+            }
+          },
+          annotation: events!=="off" ? { annotations } : {},
+          spyBackground: spyBgPlugin ? {} : undefined,
+        },
+        scales:{
+          x:{ ticks:{ color:"#484f58", font:{size:10,family:"Inter"}, maxTicksLimit:12, maxRotation:0 }, grid:{ color:"#21262d" } },
+          y:{ ticks:{ color:"#484f58", font:{size:10,family:"JetBrains Mono"}, callback:v=>(v>0?"+":"")+v.toFixed(1)+"%" }, grid:{ color:"#21262d" },
+              title:{ display:true, text: mode==="rel"?"% vs SPY":"% Return", color:"#484f58", font:{size:10} },
+              display: priceAssets.length > 0 },
+          yRight:{ type:"linear", position:"right", display: hasVIX,
+              min:0, max:90,
+              ticks:{ color:"#ff4d4d", font:{size:10,family:"JetBrains Mono"}, callback:v=>v.toFixed(0) },
+              grid:{ drawOnChartArea:false },
+              title:{ display:true, text:"VIX", color:"#ff4d4d", font:{size:10} } },
+          yRight2:{ type:"linear", position:"right", display: hasUMCSENT,
+              min:40, max:120,
+              ticks:{ color:"#bc8cff", font:{size:10,family:"JetBrains Mono"}, callback:v=>v.toFixed(0) },
+              grid:{ drawOnChartArea:false },
+              title:{ display:true, text:"Consumer Sentiment", color:"#bc8cff", font:{size:10} } },
+        }
+      }
+    });
+    return () => { if(chartInstanceRef.current) chartInstanceRef.current.destroy(); };
+  }, [hasData, activeAssets, window_, mode, events, priceData, dates, aiEvents]);
+
+  // ── Drag to select range ───────────────────────────────────────────────────
+  const handleMouseDown = useCallback(e => {
+    if(!chartInstanceRef.current) return;
+    const rect = chartRef.current.getBoundingClientRect();
+    dragStart.current = e.clientX - rect.left;
+    isDragging.current = true;
+    setRangeResult(null);
+  }, []);
+
+  const handleMouseUp = useCallback(e => {
+    if(!isDragging.current || !chartInstanceRef.current) return;
+    isDragging.current = false;
+    const chart = chartInstanceRef.current;
+    const rect = chartRef.current.getBoundingClientRect();
+    const endX = e.clientX - rect.left;
+    const startX = dragStart.current;
+    if(Math.abs(endX-startX) < 10) return;
+    const xAxis = chart.scales.x;
+    const startIdx = Math.max(0, Math.round(xAxis.getValueForPixel(Math.min(startX,endX))));
+    const endIdx = Math.min(chart.data.labels.length-1, Math.round(xAxis.getValueForPixel(Math.max(startX,endX))));
+    const startDate = chart.data.labels[startIdx];
+    const endDate = chart.data.labels[endIdx];
+    const results = activeAssets.map(ticker => {
+      const ds = chart.data.datasets.find(d=>d.label===ticker);
+      if(!ds) return null;
+      const startVal = ds.data[startIdx], endVal = ds.data[endIdx];
+      if(startVal==null||endVal==null) return null;
+      return { ticker, change: parseFloat((endVal-startVal).toFixed(2)), color: ASSET_COLORS[ticker]||"#fff" };
+    }).filter(Boolean).sort((a,b)=>b.change-a.change);
+    setRangeResult({ startDate, endDate, results });
+  }, [activeAssets]);
+
+  const toggleAsset = useCallback(ticker => {
+    setActiveAssets(prev => prev.includes(ticker) ? prev.filter(t=>t!==ticker) : [...prev,ticker]);
+  }, []);
+
+  // ── Correlation matrix ─────────────────────────────────────────────────────
+  const corrData = useMemo_(() => {
+    if(!hasData || activeAssets.length < 2) return null;
+    const windowDays = WINDOW_DAYS[window_];
+    const matrix = {};
+    activeAssets.forEach(a => {
+      matrix[a] = {};
+      activeAssets.forEach(b => {
+        if(a===b) { matrix[a][b]=1.00; return; }
+        const pa = priceData[a], pb = priceData[b];
+        if(!pa||!pb) { matrix[a][b]=null; return; }
+        const na = pa.slice(pa.length-windowDays), nb = pb.slice(pb.length-windowDays);
+        matrix[a][b] = pearsonCorr(na,nb);
+      });
+    });
+    return matrix;
+  }, [hasData, activeAssets, window_, priceData]);
+
+  if(fetching) return (
+    <div className="chart-fetch-status">
+      <div className="chart-fetch-title">Fetching Historical Data...</div>
+      <div className="chart-fetch-sub">This is a one-time fetch of up to 20 years of daily price data.<br/>~8 minutes on free tier. Do not close this tab.</div>
+      <div style={{maxWidth:480,margin:"0 auto"}}>
+        <div className="progress-track"><div className="progress-fill" style={{width:fetchProgress+"%"}}/></div>
+        <div style={{marginTop:16}}>
+          {fetchLog.map((l,i)=><div key={i} className="progress-item">
+            <div className="progress-dot" style={{background:i===fetchLog.length-1?"var(--accent)":"var(--green)",animation:i===fetchLog.length-1?"pulse 1s infinite":"none"}}/>
+            <span style={{color:i===fetchLog.length-1?"var(--text)":"var(--text3)",fontSize:12}}>{l}</span>
+          </div>)}
+        </div>
+      </div>
+    </div>
+  );
+
+  if(!hasData) return (
+    <div className="chart-fetch-status">
+      <div className="chart-fetch-title">📈 Comparative Performance Chart</div>
+      <div className="chart-fetch-sub">
+        This tab shows up to 20 years of normalized price history across all assets.<br/>
+        Data is fetched once and baked into the app — no repeat API costs.<br/><br/>
+        <strong style={{color:"var(--yellow)"}}>⚠ Uses your Alpha Vantage daily quota (~24 calls)</strong><br/>
+        Run this on a day you haven't generated the weekly report yet, or get a second free key.
+      </div>
+      <button className="btn-generate" onClick={fetchAll}>Fetch Historical Data</button>
+      <div style={{marginTop:14,fontSize:11,color:"var(--text3)"}}>After fetching, download the updated app and redeploy — data will be permanently baked in.</div>
+    </div>
+  );
+
+  return (
+    <div className="chart-tab">
+      {/* Main chart card */}
+      <div className="chart-main-wrap">
+        {/* Toolbar */}
+        <div className="chart-toolbar">
+          <div className="chart-toolbar-group">
+            <span className="chart-toolbar-label">Window</span>
+            {WINDOWS.map(w=><button key={w} className={`chart-tb-btn ${window_===w?"active":""}`} onClick={()=>setWindow_(w)}>{w}</button>)}
+          </div>
+          <div className="chart-separator"/>
+          <div className="chart-toolbar-group">
+            <span className="chart-toolbar-label">Mode</span>
+            <button className={`chart-tb-btn ${mode==="abs"?"active":""}`} onClick={()=>setMode("abs")}>Absolute %</button>
+            <button className={`chart-tb-btn mode-rel ${mode==="rel"?"active":""}`} onClick={()=>setMode("rel")}>vs SPY</button>
+          </div>
+          <div className="chart-separator"/>
+          <div className="chart-toolbar-group">
+            <span className="chart-toolbar-label">Events</span>
+            <button className={`chart-tb-btn ${events==="off"?"active":""}`} onClick={()=>setEvents("off")}>Off</button>
+            <button className={`chart-tb-btn ${events==="major"?"active":""}`} onClick={()=>setEvents("major")}>Major</button>
+            <button className={`chart-tb-btn ${events==="all"?"active":""}`} onClick={()=>setEvents("all")}>All</button>
+          </div>
+          {(bakeReady || chartNeedsUpdate) && (
+            <>
+              <div className="chart-separator"/>
+              <button className="chart-tb-btn active"
+                onClick={()=> bakeReady ? onBakeData(priceData,true) : onDownload && onDownload()}
+                style={{background:"var(--green)",borderColor:"var(--green)",color:"#000"}}>
+                ⬇ Download Updated App{chartNeedsUpdate&&!bakeReady?" (weekly prices added)":""}
+              </button>
+            </>
+          )}
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:12}}>
+          <div style={{fontSize:11,color:"var(--text3)"}}>Click and drag to measure % change between any two dates. Lines shift red when an asset enters its own bear market.</div>
+          <div style={{display:"flex",gap:12,alignItems:"center",fontSize:11}}>
+            <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:2,background:"rgba(63,185,80,0.15)",display:"inline-block",border:"1px solid rgba(63,185,80,0.3)"}}/>SPY Bull</span>
+            <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:2,background:"rgba(248,81,73,0.12)",display:"inline-block",border:"1px solid rgba(248,81,73,0.3)"}}/>SPY Bear</span>
+            <span style={{display:"flex",alignItems:"center",gap:5,color:"var(--text3)"}}>★ = AI event</span>
+            {aiEvents.length>0&&<span style={{color:"var(--accent)",fontWeight:600}}>{aiEvents.length} major event{aiEvents.length!==1?"s":""} logged</span>}
+          </div>
+        </div>
+        <div className="chart-canvas-wrap" onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}>
+          <canvas ref={chartRef}/>
+        </div>
+      </div>
+
+      {/* Range result sidebar */}
+      {rangeResult && (
+        <div className="range-sidebar">
+          <div className="range-title">📊 Range Analysis: {rangeResult.startDate} → {rangeResult.endDate}</div>
+          {rangeResult.results.map((r,i)=>(
+            <div key={i} className="range-row">
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:r.color,flexShrink:0}}/>
+                <span className="range-ticker">{r.ticker}</span>
+              </div>
+              <span style={{fontFamily:"var(--font-mono)",fontWeight:700,color:r.change>0?"var(--green)":r.change<0?"var(--red)":"var(--text2)"}}>
+                {r.change>0?"+":""}{r.change}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Asset toggles */}
+      <div className="asset-toggles">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div className="card-title" style={{margin:0}}>Assets</div>
+          <div style={{display:"flex",gap:6}}>
+            <button className="chart-tb-btn" onClick={()=>setActiveAssets(["SPY"])}>Reset</button>
+            <button className="chart-tb-btn" onClick={()=>setActiveAssets(ALL_ASSETS.flatMap(g=>g.tickers))}>All On</button>
+          </div>
+        </div>
+        {ALL_ASSETS.map(group=>(
+          <div key={group.group} className="asset-group">
+            <div className="asset-group-title">{group.group}</div>
+            <div className="asset-chips">
+              {group.tickers.map(t=>{
+                const on = activeAssets.includes(t);
+                const col = ASSET_COLORS[t]||"#fff";
+                const isInd = INDICATORS.includes(t);
+                const label = t==="VIX"?"VIX (Fear)":t==="UMCSENT"?"Consumer Sent.":t;
+                return (
+                  <button key={t} className={`asset-chip ${on?"":"off"}`}
+                    style={on?{background:col+"22",borderColor:col,color:col}:{}}
+                    title={isInd?"Shown on right axis — raw values, not % return":""}
+                    onClick={()=>toggleAsset(t)}>
+                    <div className="asset-chip-dot" style={{background:on?col:"var(--border2)"}}/>
+                    {label}{isInd?" ⊳":""}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Correlation matrix */}
+      {corrData && activeAssets.length >= 2 && (
+        <div className="corr-matrix">
+          <div className="card-title">Correlation Matrix — {window_} window</div>
+          <div style={{fontSize:11,color:"var(--text3)",marginBottom:12}}>
+            Pearson correlation vs SPY. Green = moves together, Red = moves opposite. Useful for diversification.
+          </div>
+          <table className="corr-table">
+            <thead>
+              <tr><th></th>{activeAssets.map(t=><th key={t}>{t}</th>)}</tr>
+            </thead>
+            <tbody>
+              {activeAssets.map(a=>(
+                <tr key={a}>
+                  <th style={{textAlign:"left",paddingLeft:8,color:"var(--text2)"}}>{a}</th>
+                  {activeAssets.map(b=>{
+                    const v = corrData[a]?.[b];
+                    return <td key={b} style={{background:corrColor(v),color:"var(--text)"}}>{v===1?"—":v!==null?v.toFixed(2):"N/A"}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* AI Events Sources Panel */}
+      {aiEvents.length > 0 && (
+        <div className="card">
+          <div className="card-title">★ AI-Detected Market Events — Sources</div>
+          <div style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>
+            Events automatically identified during weekly report generation. Only structural, chart-worthy events are logged.
+          </div>
+          {aiEvents.map((ev,i) => (
+            <div key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:"1px solid var(--border)",alignItems:"flex-start"}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:ev.color,flexShrink:0,marginTop:4}}/>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4,flexWrap:"wrap"}}>
+                  <span style={{fontWeight:700,fontSize:13,color:"var(--text)"}}>{ev.label}</span>
+                  <span style={{fontSize:11,color:"var(--text3)",fontFamily:"var(--font-mono)"}}>{ev.date}</span>
+                </div>
+                {ev.detail && <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.65,marginBottom:6}}>{ev.detail}</div>}
+                {ev.source && (
+                  <div style={{fontSize:11,display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:"var(--text3)"}}>Source:</span>
+                    {ev.sourceUrl
+                      ? <a href={ev.sourceUrl} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent)",textDecoration:"none"}}>{ev.source} ↗</a>
+                      : <span style={{color:"var(--text2)"}}>{ev.source}</span>
+                    }
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// useMemo polyfill name collision fix
+function useMemo_(fn, deps) { return React.useMemo(fn, deps); }
+
+
+
+
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App() {
+  const [tab,setTab]=useState("overview");
+  const [hardcodedPrices, setHardcodedPrices] = useState(() => {
+    // BAKED_PRICES_START
+    return null;
+    // BAKED_PRICES_END
+  });
+
+  const handleBakeData = useCallback((priceData, download=false) => {
+    setHardcodedPrices(priceData);
+    if(download) {
+      // Generate updated HTML with baked prices
+      const priceJson = JSON.stringify(priceData);
+      const html = document.documentElement.outerHTML;
+      const baked = html.replace(
+        /\/\/ BAKED_PRICES_START[\s\S]*?\/\/ BAKED_PRICES_END/,
+        `// BAKED_PRICES_START\n    return ${priceJson};\n    // BAKED_PRICES_END`
+      );
+      const blob = new Blob([baked], {type:"text/html"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "market-report-with-data.html";
+      a.click();
+    }
+  }, []);
+
+
+  const [chartNeedsUpdate, setChartNeedsUpdate] = useState(false);
+  const [aborting, setAborting] = useState(false);
+  const abortRef = React.useRef(false);
+  const [aiEvents, setAiEvents] = useState(()=>store.get(AI_EVENTS_KEY)||[]);
+  // Extend baked chart data with new weekly prices
+  const extendChartData = useCallback((weeklyPerfData) => {
+    setHardcodedPrices(prev => {
+      if(!prev || !prev._dates) return prev; // no baked data yet, nothing to extend
+      const today = new Date().toISOString().split("T")[0];
+      // Already have today's date, nothing to add
+      if(prev._dates[prev._dates.length-1] >= today) return prev;
+      const allTickers = Object.keys(prev).filter(k=>!k.startsWith("_")&&!k.endsWith("_dates"));
+      const extended = {...prev, _dates:[...prev._dates, today]};
+      allTickers.forEach(ticker => {
+        const newPrice = weeklyPerfData[ticker]?.price ?? null;
+        extended[ticker] = [...(prev[ticker]||[]), newPrice];
+      });
+      return extended;
+    });
+    setChartNeedsUpdate(true);
+  }, []);
+
+  const [settings,setSettings]=useState(loadSettings);
+  const [cache,setCache]=useState(loadCache);
+  const [history,setHistory]=useState(loadHistory);
+  const [generating,setGenerating]=useState(false);
+  const [prog,setProg]=useState({step:0,total:0,current:"",log:[]});
+  const [sectorSort,setSectorSort]=useState("default"); // "default" | "sentiment" | "performance"
+
+  const handleAbort = useCallback(() => {
+    abortRef.current = true;
+    setAborting(true);
+  }, []);
+
+  const saveSettingsHandler = useCallback(s=>{setSettings(s);store.set(SETTINGS_KEY,s);},[]);
+  const clearCache = useCallback(()=>{store.del(CACHE_KEY);setCache(null);},[]);
+  const clearHistory = useCallback(()=>{if(!confirm("Clear all historical data?"))return;store.del(HISTORY_KEY);setHistory([]);},[]);
+
+  const generate = useCallback(async()=>{
+    if(!settings.gmKey){alert("Enter your Groq API key in Settings first.");setTab("settings");return;}
+    setGenerating(true);
+    setAborting(false);
+    abortRef.current = false;
+    let step=0;
+    const total = 2+ALL_TICKERS.length+SECTORS.length+1;
+    const tick = msg=>{step++;setProg(p=>({step,total,current:msg,log:[...p.log.slice(-6),msg]}));};
+
+    try {
+      const partial = store.get(PARTIAL_KEY)||{};
+      let macro = partial.macro||null;
+      if(!macro){ tick("Analyzing macro environment..."); macro=await analyzeMacro(settings.gmKey); store.set(PARTIAL_KEY,{...partial,macro}); }
+      else { tick("Macro loaded from cache..."); }
+
+      const perfData = partial.perfData||{};
+      const remaining = ALL_TICKERS.filter(t=>!perfData[t]);
+      let dailyLimitHit = false;
+      let fetchedCount = Object.keys(perfData).length;
+
+      for(let i=0;i<remaining.length;i++){
+        const t=remaining[i];
+        fetchedCount++;
+        tick(`Fetching ${t} (${fetchedCount}/${ALL_TICKERS.length})...`);
+        try {
+          perfData[t]=await fetchTicker(t,settings.avKey,msg=>tick(msg));
+          store.set(PARTIAL_KEY,{...store.get(PARTIAL_KEY)||{},perfData});
+        } catch(e) {
+          console.warn(t,e.message);
+          tick(`⚠ ${t}: ${e.message}`);
+        }
+        if(abortRef.current) { tick("⛔ Aborted by user."); break; }
+        if(i<remaining.length-1) await new Promise(r=>setTimeout(r,800));
+      }
+
+      if(dailyLimitHit){
+        store.set(PARTIAL_KEY,{...store.get(PARTIAL_KEY)||{},perfData});
+        alert(`Alpha Vantage daily limit reached after ${Object.keys(perfData).length}/${ALL_TICKERS.length} tickers.\n\nProgress saved — reopen tomorrow and click Generate Report to resume.`);
+        setGenerating(false);setProg({step:0,total:0,current:"",log:[]});return;
+      }
+
+      const analysis={};
+      for(let i=0;i<SECTORS.length;i++){
+        if(abortRef.current) { tick("⛔ Aborted by user."); break; }
+        const s=SECTORS[i];
+        tick(`Analyzing ${s.name} (${i+1}/${SECTORS.length})...`);
+        try { analysis[s.id]=await analyzeSector(settings.gmKey,s,perfData,msg=>tick(msg)); }
+        catch(e) { console.warn(s.id,e.message); analysis[s.id]={score:0,momentum:"flat",pulse:"Analysis unavailable.",subindustry:"",earnings:"No data",georisk:null,topMovers:[],outlook:""}; }
+        if(i<SECTORS.length-1) await new Promise(r=>setTimeout(r,7000));
+      }
+
+      tick("Analyzing commodities...");
+      const commAnalysis=await analyzeComm(settings.gmKey,perfData,msg=>tick(msg));
+
+      const newCache={perfData,analysis,macro,commAnalysis,goldSpot:perfData["GLD"]?.price??null,oilSpot:perfData["USO"]?.price??null,timestamp:Date.now()};
+      setCache(newCache);store.set(CACHE_KEY,newCache);store.del(PARTIAL_KEY);
+
+      const sectorScores={},perfSnapshots={};
+      SECTORS.forEach(s=>{sectorScores[s.id]=analysis[s.id]?.score??0;perfSnapshots[s.id]=perfData[s.id]??null;});
+      const newHistory=[...history,{timestamp:Date.now(),sectorScores,perfSnapshots}];
+      setHistory(newHistory);store.set(HISTORY_KEY,newHistory.slice(-20));
+
+      // Generate AI events for this week
+      tick("Identifying market events this week...");
+      let newAiEvents = [];
+      try {
+        newAiEvents = await analyzeWeeklyEvents(settings.gmKey, macro, msg=>tick(msg));
+        if(newAiEvents.length > 0) {
+          const existing = store.get(AI_EVENTS_KEY)||[];
+          // Deduplicate by date+label
+          const merged = [...existing];
+          newAiEvents.forEach(ev => {
+            if(!merged.find(e=>e.date===ev.date&&e.label===ev.label)) merged.push(ev);
+          });
+          store.set(AI_EVENTS_KEY, merged);
+          setAiEvents(merged);
+        }
+      } catch(e) { console.warn("Event generation failed:", e.message); }
+
+      // Extend chart data with this week's prices
+      extendChartData(perfData);
+
+    } catch(err){alert("Error: "+err.message);}
+    setGenerating(false);setAborting(false);abortRef.current=false;setProg({step:0,total:0,current:"",log:[]});setTab("overview");
+  },[settings,history]);
+
+  const hasKeys=!!(settings.avKey&&settings.gmKey);
+  const hasData=!!cache;
+
+  // Sorted sectors
+  const sortedSectors = useCallback(()=>{
+    if(!cache||sectorSort==="default") return SECTORS;
+    if(sectorSort==="sentiment") return [...SECTORS].sort((a,b)=>(cache.analysis?.[b.id]?.score??0)-(cache.analysis?.[a.id]?.score??0));
+    if(sectorSort==="performance") return [...SECTORS].sort((a,b)=>(cache.perfData?.[b.id]?.w1??-999)-(cache.perfData?.[a.id]?.w1??-999));
+    return SECTORS;
+  },[cache,sectorSort]);
+
+  return (
+    <div className="app">
+      {/* Header */}
+      <div className="header">
+        <div className="header-logo">Market Intelligence</div>
+        <div className="header-status">
+          <div className="status-dot" style={{background:hasData?"var(--green)":"var(--red)"}}/>
+          {hasData?`Updated ${new Date(cache.timestamp).toLocaleDateString()}`:"No data"}
+        </div>
+        <div className="header-meta">{new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+      </div>
+
+      {/* Tabs */}
+      <div className="tabs">
+        {[["overview","① Overview"],["sectors","② Sectors"],["commodities","③ Commodities"],["chart","⑥ Chart"],["history","⑤ History"],["settings","⑦ Settings"]].map(([id,label])=>(
+          <button key={id} className={`tab ${tab===id?"active":""}`} onClick={()=>setTab(id)}>{label}</button>
+        ))}
+      </div>
+
+      {/* Progress */}
+      {generating&&(
+        <div className="progress-wrap">
+          <div className="progress-title">Generating Report</div>
+          <div className="progress-sub">Fetching market data + AI analysis. ~8–10 min on free tier. Keep this tab open.</div>
+          <div className="progress-track"><div className="progress-fill" style={{width:`${prog.total?(prog.step/prog.total)*100:0}%`}}/></div>
+          <div className="progress-ticker">{prog.current} — {prog.step}/{prog.total}</div>
+          <div style={{marginTop:16,marginBottom:8}}>
+            <button className="btn btn-danger" onClick={handleAbort} disabled={aborting}
+              style={{fontSize:12,padding:"6px 20px"}}>
+              {aborting ? "⛔ Aborting..." : "⛔ Abort Report"}
+            </button>
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:6}}>
+              Aborting will stop fetching but save progress so far
+            </div>
+          </div>
+          <div className="progress-log">
+            {prog.log.map((l,i)=>(
+              <div key={i} className="progress-item">
+                <div className="progress-dot" style={{background:i===prog.log.length-1?"var(--accent)":"var(--green)",animation:i===prog.log.length-1?"pulse 1s infinite":"none"}}/>
+                <span style={{color:i===prog.log.length-1?"var(--text)":"var(--text3)"}}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!generating&&(
+        <div className="main">
+
+          {/* ── OVERVIEW ── */}
+          {tab==="overview"&&(
+            <div className="gap-20">
+              {!hasData&&(
+                <div className="welcome">
+                  <div className="welcome-title">Market Intelligence</div>
+                  <div className="welcome-sub">Weekly sector analysis · AI-powered · All 11 GICS sectors</div>
+                  <div className="welcome-features">
+                    {[["📊","ETF Performance","1W/1M/3M/6M/1Y across 24 tickers via FMP (free)"],["🤖","AI Analysis","Deep sector analysis, earnings, geo-risk via Groq"],["🌍","Full Coverage","11 sectors · 4 benchmarks · 4 global · 5 commodities"],["📈","History","Tracks sentiment week-over-week automatically"],["⚠️","Risk Flags","Geo-risks, earnings watch & sector rotation signals"],["🆓","100% Free","Alpha Vantage + Groq free tiers — no credit card"]].map(([i,t,d])=>(
+                      <div key={t} className="welcome-feat"><div className="welcome-feat-icon">{i}</div><div className="welcome-feat-title">{t}</div><div className="welcome-feat-desc">{d}</div></div>
+                    ))}
+                  </div>
+                  <button className="btn-generate" onClick={hasKeys?generate:()=>setTab("settings")}>
+                    {hasKeys?"Generate Report":"Enter API Keys First →"}
+                  </button>
+                  {!hasKeys&&<div style={{marginTop:14,fontSize:12,color:"var(--text3)"}}>Go to ⑤ Settings to enter your API keys</div>}
+                  {hasKeys&&store.get(PARTIAL_KEY)&&(
+                    <div style={{marginTop:18,fontSize:12,color:"var(--yellow)",background:"rgba(227,179,65,.08)",border:"1px solid rgba(227,179,65,.2)",borderRadius:6,padding:"10px 20px",display:"inline-block"}}>
+                      ⚡ Partial progress saved — clicking Generate will resume from where it stopped
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {hasData&&<>
+                {/* Macro */}
+                {cache.macro&&(
+                  <div className="card">
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                      <div className="card-title" style={{margin:0}}>Macro Pulse</div>
+                      <span style={{fontSize:12,padding:"4px 12px",borderRadius:5,fontWeight:700,
+                        background:cache.macro.overallTone==="Risk-On"?"rgba(63,185,80,.15)":cache.macro.overallTone==="Risk-Off"?"rgba(248,81,73,.15)":"rgba(227,179,65,.15)",
+                        color:cache.macro.overallTone==="Risk-On"?"var(--green)":cache.macro.overallTone==="Risk-Off"?"var(--red)":"var(--yellow)"
+                      }}>{cache.macro.overallTone}</span>
+                    </div>
+                    <div className="macro-grid">
+                      <div className="macro-card"><div className="macro-label">CPI Inflation</div><div className="macro-value">{cache.macro.cpi}</div><div className="macro-note">{cache.macro.cpiNote}</div></div>
+                      <div className="macro-card"><div className="macro-label">Fed Funds Rate</div><div className="macro-value">{cache.macro.rates}</div><div className="macro-note">{cache.macro.ratesNote}</div></div>
+                      <div className="macro-card"><div className="macro-label">GDP Growth</div><div className="macro-value">{cache.macro.gdp}</div><div className="macro-note">{cache.macro.gdpNote}</div></div>
+                    </div>
+                    {cache.macro.macroSummary&&<div style={{marginTop:14,fontSize:13,color:"var(--text2)",lineHeight:1.75,padding:"14px 16px",background:"var(--bg3)",borderRadius:6,borderLeft:"3px solid var(--accent)"}}>{cache.macro.macroSummary}</div>}
+                  </div>
+                )}
+
+                {/* Benchmarks */}
+                <div className="card"><div className="card-title">US Benchmarks</div><div className="grid-4">{BENCHMARKS.map(b=><BenchCard key={b.id} item={b} data={cache.perfData}/>)}</div></div>
+                <div className="card"><div className="card-title">Global Markets</div><div className="grid-4">{GLOBAL.map(g=><BenchCard key={g.id} item={g} data={cache.perfData}/>)}</div></div>
+
+                {/* Heatmap */}
+                <div className="card"><div className="card-title">Sector Sentiment Heat Map</div><Heatmap sectors={SECTORS} analysis={cache.analysis}/></div>
+
+                {/* Rotation */}
+                <div className="card"><div className="card-title">Sector Rotation Signal</div><RotationSignal sectors={SECTORS} analysis={cache.analysis}/></div>
+
+                <div style={{textAlign:"center",paddingBottom:8}}>
+                  <button className="btn btn-ghost" onClick={generate}>↺ Refresh Report</button>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Cache auto-refreshes weekly. Manual refresh uses daily API quota.</div>
+                </div>
+
+                {chartNeedsUpdate && hardcodedPrices && (
+                  <div style={{background:"rgba(63,185,80,.08)",border:"1px solid rgba(63,185,80,.25)",borderRadius:8,padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:"var(--green)",marginBottom:4}}>📈 Chart data updated with this week\'s prices</div>
+                      <div style={{fontSize:12,color:"var(--text2)"}}>Download and redeploy to keep your chart permanently up to date.</div>
+                    </div>
+                    <button className="btn btn-primary" style={{background:"var(--green)",color:"#000",fontWeight:700,whiteSpace:"nowrap"}}
+                      onClick={()=>{ handleBakeData(hardcodedPrices, true); setChartNeedsUpdate(false); }}>
+                      ⬇ Download Updated App
+                    </button>
+                  </div>
+                )}
+              </>}
+            </div>
+          )}
+
+          {/* ── SECTORS ── */}
+          {tab==="sectors"&&(
+            <div className="gap-20">
+              {!hasData?<div className="empty">Generate a report first.</div>:<>
+                <div className="sort-bar">
+                  <span className="sort-label">Sort by:</span>
+                  {[["default","Default"],["sentiment","Sentiment ↕"],["performance","1W Perf ↕"]].map(([v,l])=>(
+                    <button key={v} className={`sort-btn ${sectorSort===v?"active":""}`} onClick={()=>setSectorSort(v)}>{l}</button>
+                  ))}
+                </div>
+                <div className="grid-2">
+                  {sortedSectors().map(s=><SectorCard key={s.id} sector={s} perf={cache.perfData} analysis={cache.analysis}/>)}
+                </div>
+              </>}
+            </div>
+          )}
+
+          {/* ── COMMODITIES ── */}
+          {tab==="commodities"&&(
+            <div className="gap-20">
+              {!hasData?<div className="empty">Generate a report first.</div>:<>
+                <div className="card">
+                  <div className="card-title">Commodities Overview</div>
+                  {cache.commAnalysis?.commoditySummary&&<div style={{fontSize:13,color:"var(--text2)",lineHeight:1.75,marginBottom:18,padding:"14px 16px",background:"var(--bg3)",borderRadius:6,borderLeft:"3px solid var(--yellow)"}}>{cache.commAnalysis.commoditySummary}</div>}
+                  <div className="grid-3">
+                    {[
+                      {name:"🥇 Gold",etf:"GLD",spotLabel:"GLD PRICE",spot:cache.goldSpot?`$${cache.goldSpot.toFixed(2)}`:"N/A",note:cache.commAnalysis?.goldNote},
+                      {name:"🛢️ WTI Oil",etf:"USO",spotLabel:"USO PRICE",spot:cache.oilSpot?`$${cache.oilSpot.toFixed(2)}`:"N/A",note:cache.commAnalysis?.oilNote},
+                      {name:"🥈 Silver",etf:"SLV",note:cache.commAnalysis?.silverNote},
+                      {name:"🔶 Copper",etf:"COPA",sub:"Economic leading indicator",note:cache.commAnalysis?.copperNote},
+                      {name:"📦 Broad Commodities",etf:"DJP"},
+                    ].map(c=>(
+                      <div key={c.etf} className="comm-card">
+                        <div className="comm-name">{c.name}</div>
+                        {c.spotLabel&&<><div className="comm-spot-label">{c.spotLabel}</div><div className="comm-spot">{c.spot}</div></>}
+                        {c.sub&&<div style={{fontSize:11,color:"var(--text3)",marginBottom:8}}>{c.sub}</div>}
+                        <div style={{margin:"10px 0"}}>
+                          {[["1W",cache.perfData?.[c.etf]?.w1],["1M",cache.perfData?.[c.etf]?.m1],["3M",cache.perfData?.[c.etf]?.m3],["6M",cache.perfData?.[c.etf]?.m6],["1Y",cache.perfData?.[c.etf]?.y1]].map(([p,v])=>(
+                            <div key={p} className="bench-perf-row">
+                              <span className="bench-perf-label">{c.etf} {p}</span>
+                              <span className={`perf ${pc(v)}`} style={{fontSize:11}}>{fp(v)}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {c.note&&<div style={{marginTop:10,fontSize:12,color:"var(--text2)",lineHeight:1.65,borderTop:"1px solid var(--border)",paddingTop:10}}>{c.note}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>}
+            </div>
+          )}
+
+
+          {/* ── CHART ── */}
+          {tab==="chart"&&<ChartTab settings={settings} hardcodedPrices={hardcodedPrices} onBakeData={handleBakeData} chartNeedsUpdate={chartNeedsUpdate} onDownload={()=>{handleBakeData(hardcodedPrices,true);setChartNeedsUpdate(false);}} aiEvents={aiEvents}/>}
+
+          {/* ── HISTORY ── */}
+          {tab==="history"&&<HistoryTab history={history}/>}
+
+          {/* ── SETTINGS ── */}
+          {tab==="settings"&&<SettingsTab settings={settings} onSave={saveSettingsHandler} onClearCache={clearCache} onClearHistory={clearHistory} cacheInfo={cache?.timestamp}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+
+<script>
+(function() {
+  var bar = document.getElementById('init-bar');
+  function setProgress(p) { if(bar) bar.style.width = p + '%'; }
+
+  // Poll until all CDN deps are ready before starting Babel
+  function waitForDeps(cb, attempts) {
+    attempts = attempts || 0;
+    if(attempts > 300) { // 30s timeout
+      var missing = [];
+      if(!window.React) missing.push('React');
+      if(!window.ReactDOM) missing.push('ReactDOM');
+      if(!window.Chart) missing.push('Chart.js');
+      if(!window.Babel) missing.push('Babel');
+      window.onerror('Failed to load: ' + missing.join(', ') + '. Try refreshing the page.', 'deps', 0);
+      return;
+    }
+    if(window.React && window.ReactDOM && window.Chart && window.Babel) {
+      cb();
+    } else {
+      setProgress(Math.min(40, attempts / 3));
+      setTimeout(function() { waitForDeps(cb, attempts + 1); }, 100);
+    }
+  }
+
+  waitForDeps(function() {
+    setProgress(50);
+    var src = document.getElementById('app-source').textContent;
+    setTimeout(function() {
+      try {
+        var compiled = Babel.transform(src, { presets: ['react'] }).code;
+        setProgress(80);
+        setTimeout(function() {
+          try {
+            var script = document.createElement('script');
+            script.textContent = compiled;
+            document.body.appendChild(script);
+            setProgress(100);
+          } catch(e) { window.onerror(e.message, 'eval', 0); }
+        }, 10);
+      } catch(e) { window.onerror('Babel: ' + e.message, 'transform', 0); }
+    }, 50);
+  });
+})();
+</script>
+
+</body>
+</html>
