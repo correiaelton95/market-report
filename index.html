@@ -276,7 +276,7 @@ const sentLabel = s => s>=1.5?"BULLISH":s>=0.5?"LEAN BULL":s>-0.5?"NEUTRAL":s>-1
 const mom = m => m==="up"?"↑":m==="down"?"↓":"→";
 const heatColor = s => s>=1.5?{bg:"rgba(63,185,80,.2)",col:"#3fb950"}:s>=0.5?{bg:"rgba(86,211,100,.13)",col:"#56d364"}:s>-0.5?{bg:"rgba(227,179,65,.13)",col:"#e3b341"}:s>-1.5?{bg:"rgba(240,136,62,.13)",col:"#f0883e"}:{bg:"rgba(248,81,73,.18)",col:"#f85149"};
 
-// ── Alpha Vantage ─────────────────────────────────────────────────────────────
+// ── Price Data (via Netlify proxy → Yahoo Finance, or baked) ─────────────────
 function isRateLimited(j) {
   const note = j["Note"]||j["Information"]||"";
   return !!(note&&(note.includes("call frequency")||note.includes("API call volume")||note.includes("subscribe")));
@@ -348,6 +348,36 @@ function calcMathScore(perf) {
 
 function clampScore(s) { return Math.max(-2, Math.min(2, Math.round(s*4)/4)); }
 
+
+// ── Derive ETF performance from baked chart prices ────────────────────────────
+function derivePerfFromBaked(hardcodedPrices) {
+  if(!hardcodedPrices || !hardcodedPrices._dates) return {};
+  const dates = hardcodedPrices._dates;
+  const perfData = {};
+  const allTickers = [...SECTORS.map(s=>s.id), ...BENCHMARKS.map(b=>b.id),
+                      ...GLOBAL.map(g=>g.id), ...COMMODITIES.map(c=>c.id)];
+  allTickers.forEach(ticker => {
+    const prices = hardcodedPrices[ticker];
+    if(!prices || prices.length === 0) return;
+    // Find last non-null price
+    let latestIdx = prices.length - 1;
+    while(latestIdx > 0 && prices[latestIdx] === null) latestIdx--;
+    const latest = prices[latestIdx];
+    if(!latest) return;
+    const perf = n => {
+      const idx = Math.max(0, latestIdx - n);
+      const old = prices[idx];
+      if(!old) return null;
+      return ((latest - old) / old) * 100;
+    };
+    perfData[ticker] = {
+      ticker, price: latest,
+      w1: perf(5), m1: perf(21), m3: perf(63), m6: perf(126), y1: perf(252)
+    };
+  });
+  return perfData;
+}
+
 // ── Groq ──────────────────────────────────────────────────────────────────────
 async function groq(apiKey, prompt, onWait) {
   for(let attempt=0; attempt<4; attempt++) {
@@ -401,23 +431,51 @@ Respond ONLY with valid JSON, no markdown, no backticks:
 }
 
 async function analyzeMacro(apiKey) {
+  // Step 1: Fetch actual numbers from FRED — no hallucination possible
+  const realData = await fetchRealMacroData();
+
+  const cpiStr = realData.cpi || "unavailable";
+  const cpiTrend = realData.cpiTrend || "";
+  const fedStr = realData.fedRate || "unavailable";
+  const gdpStr = realData.gdp || "unavailable";
+
+  // Step 2: Ask Groq only for qualitative context — NOT numbers
   const raw = await groq(apiKey,
-    `You are a senior macro economist with access to the most current market data. Today's date: ${new Date().toDateString()}.
+    `You are a senior macro economist. Today: ${new Date().toDateString()}.
 
-Use your most recent knowledge. Be SPECIFIC with actual figures, dates, and events from the past 1-3 months.
-IMPORTANT: If there are active geopolitical conflicts, trade wars, sanctions, or financial crises happening RIGHT NOW, mention them explicitly and how they affect markets.
+REAL DATA FETCHED FROM FRED (use these exact numbers, do not change them):
+- CPI (YoY): ${cpiStr} as of ${realData.cpiDate||"recent"}, trend: ${cpiTrend}
+- Fed Funds Rate: ${fedStr} as of ${realData.fedDate||"recent"}
+- Real GDP Growth (annualized): ${gdpStr} as of ${realData.gdpDate||"recent"}
 
-Focus on:
-(1) Latest CPI reading with exact figure and whether it's trending up or down
-(2) Current Fed funds rate and exact stance from most recent FOMC meeting — are cuts or hikes expected next?
-(3) GDP trajectory and any recent recession indicators (yield curve, PMI, employment)
-(4) The single most important macro theme RIGHT NOW affecting global markets (e.g. tariffs, oil supply shock, dollar strength, geopolitical conflict)
+Your job is to provide QUALITATIVE CONTEXT only — explain what these numbers mean for markets.
+Do NOT change or second-guess the numbers above. Use them exactly as provided.
+Focus on: Fed policy direction, recession risk, dominant market theme RIGHT NOW (tariffs, geopolitics, oil shock, etc).
+Reference specific current events from the past 1-3 months.
 
 Respond ONLY with valid JSON, no markdown:
-{"cpi":"<exact latest figure>","cpiNote":"<2 sentences with trend and Fed implication>","rates":"<exact current rate>","ratesNote":"<2 sentences: last FOMC decision and next expected move>","gdp":"<latest reading>","gdpNote":"<2 sentences: trajectory and recession risk>","overallTone":<"Risk-On"|"Risk-Off"|"Mixed">,"macroSummary":"<3-4 sentences: the dominant market theme RIGHT NOW, specific geopolitical/macro events, and what it means for investors over the next 6-12 months>"}`
+{"cpi":"${cpiStr}","cpiNote":"<2 sentences: what this CPI trend means for Fed policy and markets>","rates":"${fedStr}","ratesNote":"<2 sentences: current Fed stance and next expected move based on recent FOMC>","gdp":"${gdpStr}","gdpNote":"<2 sentences: what this growth rate means and recession risk>","overallTone":<"Risk-On"|"Risk-Off"|"Mixed">,"macroSummary":"<3-4 sentences: dominant market theme RIGHT NOW with specific events, geopolitical risks, and investor implications>"}`
   );
-  try { return JSON.parse(raw.replace(/```json|```/g,"").trim()); }
-  catch { return {cpi:"N/A",cpiNote:"",rates:"N/A",ratesNote:"",gdp:"N/A",gdpNote:"",overallTone:"Mixed",macroSummary:raw.slice(0,300)}; }
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+    // Always override with real FRED data regardless of AI response
+    if(realData.cpi) parsed.cpi = realData.cpi;
+    if(realData.fedRate) parsed.rates = realData.fedRate;
+    if(realData.gdp) parsed.gdp = realData.gdp;
+    return parsed;
+  }
+  catch {
+    return {
+      cpi: realData.cpi||"N/A",
+      cpiNote: `Trend: ${cpiTrend}. As of ${realData.cpiDate||"recent"}.`,
+      rates: realData.fedRate||"N/A",
+      ratesNote: "",
+      gdp: realData.gdp||"N/A",
+      gdpNote: "",
+      overallTone:"Mixed",
+      macroSummary:""
+    };
+  }
 }
 
 async function analyzeComm(apiKey, perfData, onWait) {
@@ -728,7 +786,7 @@ function SettingsTab({ settings, onSave, onClearCache, onClearHistory, cacheInfo
     <div className="settings-wrap">
       <div className="setting-group">
         <div className="setting-label">Price Data</div>
-        <div className="setting-desc" style={{color:"var(--green)"}}>✓ No API key needed — price data comes from Stooq.com (free, no registration, full 20-year history). Works automatically.</div>
+        <div className="setting-desc" style={{color:"var(--green)"}}>✓ No API key needed — price data is baked into the app from the Chart tab. Fetch historical data once, download the updated app, and performance numbers work offline forever.</div>
       </div>
       <div className="setting-group">
         <div className="setting-label">Groq API Key</div>
@@ -750,7 +808,12 @@ function SettingsTab({ settings, onSave, onClearCache, onClearHistory, cacheInfo
       </div>
       <div className="setting-group" style={{fontSize:12,color:"var(--text3)",lineHeight:1.7}}>
         <div className="setting-label">Security Note</div>
-        Keys stored in your browser's localStorage on this device only. Sent directly to Alpha Vantage and Groq — nowhere else.
+        Keys stored in your browser's localStorage on this device only. Sent directly to Groq — nowhere else.
+      </div>
+      <div className="setting-group" style={{fontSize:12,color:"var(--text2)",lineHeight:1.8}}>
+        <div className="setting-label">Hosting</div>
+        <div>This app runs on <strong>GitHub Pages</strong> — free, unlimited, no credits.</div>
+        <div style={{marginTop:8,color:"var(--text3)"}}>To update: fetch data in ⑥ Chart tab → Download Updated App → push <code>index.html</code> to GitHub → auto-deploys in seconds.</div>
       </div>
     </div>
   );
@@ -1057,13 +1120,12 @@ function buildSegmentedDataset(ticker, normalizedData, assetRegime, baseColor) {
 }
 
 
-// ── Fetch UMCSENT from FRED (no key required) ─────────────────────────────────
+// ── Fetch from FRED (no key required) ────────────────────────────────────────
 async function fetchFRED(seriesId) {
-  // FRED CSV endpoint — free, no API key needed
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
   const r = await fetch(url);
   const text = await r.text();
-  const lines = text.trim().split("\n").slice(1); // skip header
+  const lines = text.trim().split("\n").slice(1);
   const dates = [], values = [];
   lines.forEach(line => {
     const [date, val] = line.split(",");
@@ -1073,6 +1135,52 @@ async function fetchFRED(seriesId) {
     }
   });
   return { dates, values };
+}
+
+// ── Fetch real macro numbers directly from FRED ───────────────────────────────
+async function fetchRealMacroData() {
+  const results = {};
+  try {
+    // CPI YoY % change (CPIAUCSL — monthly)
+    const cpi = await fetchFRED("CPIAUCSL");
+    if(cpi.values.length >= 13) {
+      const latest = cpi.values[cpi.values.length-1];
+      const yearAgo = cpi.values[cpi.values.length-13];
+      const yoy = ((latest - yearAgo) / yearAgo * 100).toFixed(1);
+      const prev = cpi.values[cpi.values.length-2];
+      const prevYearAgo = cpi.values[cpi.values.length-14];
+      const prevYoy = ((prev - prevYearAgo) / prevYearAgo * 100).toFixed(1);
+      const trend = parseFloat(yoy) < parseFloat(prevYoy) ? "↓ cooling" : "↑ rising";
+      results.cpi = `${yoy}% YoY`;
+      results.cpiDate = cpi.dates[cpi.dates.length-1];
+      results.cpiTrend = trend;
+      results.cpiPrev = `${prevYoy}%`;
+    }
+  } catch(e) { console.warn("CPI fetch failed:", e.message); }
+
+  try {
+    // Fed Funds Rate (FEDFUNDS — monthly effective rate)
+    const fed = await fetchFRED("FEDFUNDS");
+    if(fed.values.length > 0) {
+      const latest = fed.values[fed.values.length-1].toFixed(2);
+      results.fedRate = `${latest}%`;
+      results.fedDate = fed.dates[fed.dates.length-1];
+    }
+  } catch(e) { console.warn("Fed rate fetch failed:", e.message); }
+
+  try {
+    // Real GDP Growth QoQ annualized (A191RL1Q225SBEA — quarterly)
+    const gdp = await fetchFRED("A191RL1Q225SBEA");
+    if(gdp.values.length > 0) {
+      const latest = gdp.values[gdp.values.length-1].toFixed(1);
+      const prev = gdp.values[gdp.values.length-2].toFixed(1);
+      results.gdp = `${latest}% (annualized)`;
+      results.gdpDate = gdp.dates[gdp.dates.length-1];
+      results.gdpPrev = prev;
+    }
+  } catch(e) { console.warn("GDP fetch failed:", e.message); }
+
+  return results;
 }
 
 
@@ -1102,7 +1210,7 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
 
   // ── Fetch historical data ──────────────────────────────────────────────────
   const fetchAll = useCallback(async() => {
-    if(!settings.avKey) { alert("Enter your Alpha Vantage key in Settings first."); return; }
+    // Price data fetched via Netlify proxy — no key needed
     setFetching(true);
     setFetchLog([]);
     const tick = msg => setFetchLog(l=>[...l.slice(-8),msg]);
@@ -1272,11 +1380,25 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
     const annotations = {};
     visibleEvents.forEach((ev,i) => {
       const nearest = slicedDates.findIndex(d=>d>=ev.date);
+      if(nearest===-1) return;
       annotations["ev"+i] = {
         type:"line", xMin:nearest, xMax:nearest,
         borderColor:ev.color+"99", borderWidth:1.5,
         borderDash:[4,3],
-        // No label on chart — shown in panel below instead
+        label:{
+          display:false, // shown on hover via enter/leave events
+          content: ev.label,
+          position:"start",
+          color:ev.color,
+          font:{size:10,family:"Inter",weight:"700"},
+          backgroundColor:"rgba(13,17,23,0.92)",
+          borderColor:ev.color,
+          borderWidth:1,
+          borderRadius:4,
+          padding:{x:8,y:4},
+        },
+        enter: ({element}) => { element.label.options.display=true; chartInstanceRef.current?.update("none"); },
+        leave: ({element}) => { element.label.options.display=false; chartInstanceRef.current?.update("none"); },
       };
     });
 
@@ -1408,10 +1530,10 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
     <div className="chart-fetch-status">
       <div className="chart-fetch-title">📈 Comparative Performance Chart</div>
       <div className="chart-fetch-sub">
-        This tab shows up to 20 years of normalized price history across all assets.<br/>
+        This tab shows up to 20 years of normalized price history across all assets (via Yahoo Finance).<br/>
         Data is fetched once and baked into the app — no repeat API costs.<br/><br/>
-        <strong style={{color:"var(--yellow)"}}>⚠ Uses your Alpha Vantage daily quota (~24 calls)</strong><br/>
-        Run this on a day you haven't generated the weekly report yet, or get a second free key.
+        <strong style={{color:"var(--green)"}}>✓ Free via Yahoo Finance — no API quota used</strong><br/>
+        Uses your Netlify proxy to fetch Yahoo Finance data — no API key needed.
       </div>
       <button className="btn-generate" onClick={fetchAll}>Fetch Historical Data</button>
       <div style={{marginTop:14,fontSize:11,color:"var(--text3)"}}>After fetching, download the updated app and redeploy — data will be permanently baked in.</div>
@@ -1709,31 +1831,36 @@ function App() {
       if(!macro){ tick("Analyzing macro environment..."); macro=await analyzeMacro(settings.gmKey); store.set(PARTIAL_KEY,{...partial,macro}); }
       else { tick("Macro loaded from cache..."); }
 
-      const perfData = partial.perfData||{};
-      const remaining = ALL_TICKERS.filter(t=>!perfData[t]);
-      let dailyLimitHit = false;
-      let fetchedCount = Object.keys(perfData).length;
-
-      for(let i=0;i<remaining.length;i++){
-        const t=remaining[i];
-        fetchedCount++;
-        tick(`Fetching ${t} (${fetchedCount}/${ALL_TICKERS.length})...`);
-        try {
-          perfData[t]=await fetchTicker(t,settings.avKey,msg=>tick(msg));
-          store.set(PARTIAL_KEY,{...store.get(PARTIAL_KEY)||{},perfData});
-        } catch(e) {
-          console.warn(t,e.message);
-          tick(`⚠ ${t}: ${e.message}`);
+      // Derive performance from baked chart prices — no API calls needed
+      let perfData = {};
+      if(hardcodedPrices && hardcodedPrices._dates && hardcodedPrices._dates.length > 0) {
+        tick("Computing ETF performance from baked price data...");
+        perfData = derivePerfFromBaked(hardcodedPrices);
+        const count = Object.keys(perfData).length;
+        tick(`✓ Computed performance for ${count} tickers from baked data`);
+      } else {
+        // No baked data yet — fetch from proxy
+        const partial = store.get(PARTIAL_KEY)||{};
+        perfData = partial.perfData||{};
+        const remaining = ALL_TICKERS.filter(t=>!perfData[t]);
+        let fetchedCount = Object.keys(perfData).length;
+        for(let i=0;i<remaining.length;i++){
+          const t=remaining[i];
+          fetchedCount++;
+          tick(`Fetching ${t} (${fetchedCount}/${ALL_TICKERS.length})...`);
+          try {
+            perfData[t]=await fetchTicker(t,settings.avKey,msg=>tick(msg));
+            store.set(PARTIAL_KEY,{...store.get(PARTIAL_KEY)||{},perfData});
+          } catch(e) {
+            console.warn(t,e.message);
+            tick(`⚠ ${t}: ${e.message}`);
+          }
+          if(abortRef.current) { tick("⛔ Aborted by user."); break; }
+          if(i<remaining.length-1) await new Promise(r=>setTimeout(r,800));
         }
-        if(abortRef.current) { tick("⛔ Aborted by user."); break; }
-        if(i<remaining.length-1) await new Promise(r=>setTimeout(r,800));
       }
 
-      if(dailyLimitHit){
-        store.set(PARTIAL_KEY,{...store.get(PARTIAL_KEY)||{},perfData});
-        alert(`Alpha Vantage daily limit reached after ${Object.keys(perfData).length}/${ALL_TICKERS.length} tickers.\n\nProgress saved — reopen tomorrow and click Generate Report to resume.`);
-        setGenerating(false);setProg({step:0,total:0,current:"",log:[]});return;
-      }
+
 
       const analysis={};
       for(let i=0;i<SECTORS.length;i++){
@@ -1853,7 +1980,7 @@ function App() {
                   <div className="welcome-title">Market Intelligence</div>
                   <div className="welcome-sub">Weekly sector analysis · AI-powered · All 11 GICS sectors</div>
                   <div className="welcome-features">
-                    {[["📊","ETF Performance","1W/1M/3M/6M/1Y across 24 tickers via FMP (free)"],["🤖","AI Analysis","Deep sector analysis, earnings, geo-risk via Groq"],["🌍","Full Coverage","11 sectors · 4 benchmarks · 4 global · 5 commodities"],["📈","History","Tracks sentiment week-over-week automatically"],["⚠️","Risk Flags","Geo-risks, earnings watch & sector rotation signals"],["🆓","100% Free","Alpha Vantage + Groq free tiers — no credit card"]].map(([i,t,d])=>(
+                    {[["📊","ETF Performance","1W/1M/3M/6M/1Y derived from baked price data — no API needed"],["🤖","AI Analysis","Deep sector analysis, earnings, geo-risk via Groq"],["🌍","Full Coverage","11 sectors · 4 benchmarks · 4 global · 5 commodities"],["📈","History","Tracks sentiment week-over-week automatically"],["⚠️","Risk Flags","Geo-risks, earnings watch & sector rotation signals"],["🆓","100% Free","Alpha Vantage + Groq free tiers — no credit card"]].map(([i,t,d])=>(
                       <div key={t} className="welcome-feat"><div className="welcome-feat-icon">{i}</div><div className="welcome-feat-title">{t}</div><div className="welcome-feat-desc">{d}</div></div>
                     ))}
                   </div>
@@ -1901,7 +2028,11 @@ function App() {
 
                 <div style={{textAlign:"center",paddingBottom:8}}>
                   <button className="btn btn-ghost" onClick={generate}>↺ Refresh Report</button>
-                  <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Cache auto-refreshes weekly. Manual refresh uses daily API quota.</div>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>
+                    {hardcodedPrices?._dates?.length > 0
+                      ? `✓ Using baked price data (${hardcodedPrices._dates[hardcodedPrices._dates.length-1]}). Bake new data in ⑥ Chart tab to update.`
+                      : "No baked data yet — go to ⑥ Chart tab and click Fetch Historical Data first."}
+                  </div>
                 </div>
 
                 {chartNeedsUpdate && hardcodedPrices && (
