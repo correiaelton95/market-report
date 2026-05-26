@@ -277,10 +277,10 @@ function isPremiumError(j) { return !!(j["Information"]&&j["Information"].includ
 
 // Stooq.com — free, no API key, no CORS issues, full history
 // Used by pandas-datareader, no registration needed
-const STOOQ_MAP = {"SPY": "spy.us", "QQQ": "qqq.us", "DIA": "dia.us", "IWM": "iwm.us", "XLK": "xlk.us", "XLV": "xlv.us", "XLF": "xlf.us", "XLE": "xle.us", "XLY": "xly.us", "XLP": "xlp.us", "XLI": "xli.us", "XLB": "xlb.us", "XLRE": "xlre.us", "XLU": "xlu.us", "XLC": "xlc.us", "VEU": "veu.us", "EEM": "eem.us", "VGK": "vgk.us", "VPL": "vpl.us", "GLD": "gld.us", "SLV": "slv.us", "USO": "uso.us", "COPA": "copa.us", "DJP": "djp.us", "VIX": "^vix"};
+const STOOQ_MAP = {"VIX": "%5EVIX"}; // Yahoo uses ^VIX encoded as %5EVIX, all others use ticker directly
 
 async function fetchStooq(ticker) {
-  const sym = STOOQ_MAP[ticker] || (ticker.toLowerCase()+".us");
+  const sym = STOOQ_MAP[ticker] || ticker; // Yahoo uses standard tickers
   // Call our own Netlify proxy function — no CORS issues
   const url = `/.netlify/functions/proxy?ticker=${encodeURIComponent(sym)}`;
   const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
@@ -289,11 +289,11 @@ async function fetchStooq(ticker) {
   if(text.includes("No data") || text.includes("error") || text.trim().split("\n").length < 3) {
     throw new Error("No data for "+ticker);
   }
-  // Parse CSV: Date,Open,High,Low,Close,Volume
+  // Parse CSV: date,close
   const lines = text.trim().split("\n").slice(1); // skip header
   const pairs = lines.map(line => {
     const cols = line.split(",");
-    return { date: cols[0].trim(), close: parseFloat(cols[4]) };
+    return { date: cols[0].trim(), close: parseFloat(cols[1]) };
   }).filter(p => p.date && !isNaN(p.close));
   if(pairs.length === 0) throw new Error("Empty data for "+ticker);
   return pairs; // sorted oldest→newest
