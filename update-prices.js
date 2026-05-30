@@ -1,5 +1,5 @@
-// GitHub Action script — runs server-side, no CORS issues
-// Fetches Yahoo Finance data for all tickers and bakes into index.html
+// GitHub Action script — runs server-side every Sunday
+// Fetches Yahoo Finance + FRED data and writes prices.json to repo root
 
 const https = require('https');
 const fs = require('fs');
@@ -9,11 +9,8 @@ const TICKERS = [
   'SPY','QQQ','DIA','IWM',
   'VEU','EEM','VGK','VPL',
   'GLD','SLV','USO','COPA','DJP',
-  '%5EVIX'  // VIX
+  '%5EVIX'
 ];
-
-// FRED tickers for UMCSENT
-const FRED_SERIES = ['UMCSENT'];
 
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
@@ -35,18 +32,17 @@ function fetchUrl(url) {
 async function fetchYahoo(ticker) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=20y`;
   const res = await fetchUrl(url);
-  if(res.status !== 200) throw new Error(`HTTP ${res.status} for ${ticker}`);
+  if(res.status !== 200) throw new Error(`HTTP ${res.status}`);
   const j = JSON.parse(res.body);
   const result = j?.chart?.result?.[0];
-  if(!result) throw new Error(`No data for ${ticker}`);
+  if(!result) throw new Error('No result');
   const timestamps = result.timestamp;
   const closes = result.indicators?.quote?.[0]?.close;
-  if(!timestamps || !closes) throw new Error(`Missing prices for ${ticker}`);
-  const pairs = timestamps.map((ts, i) => ({
+  if(!timestamps || !closes) throw new Error('Missing data');
+  return timestamps.map((ts, i) => ({
     date: new Date(ts * 1000).toISOString().split('T')[0],
     close: closes[i]
   })).filter(p => p.close !== null && p.close !== undefined);
-  return pairs;
 }
 
 async function fetchFRED(seriesId) {
@@ -65,84 +61,59 @@ async function fetchFRED(seriesId) {
 }
 
 async function main() {
-  console.log(`Starting price update: ${new Date().toISOString()}`);
+  console.log(`\nMarket Report Price Updater — ${new Date().toISOString()}`);
+  console.log('='.repeat(60));
 
-  // Read current index.html
-  const html = fs.readFileSync('index.html', 'utf8');
+  const rawPrices = {};
+  let masterDates = null;
 
-  // Find the BAKED_PRICES_START marker
-  const startMarker = '// BAKED_PRICES_START';
-  const endMarker = '// BAKED_PRICES_END';
-  const startIdx = html.indexOf(startMarker);
-  const endIdx = html.indexOf(endMarker);
-
-  if(startIdx === -1 || endIdx === -1) {
-    console.error('ERROR: Could not find BAKED_PRICES_START/END markers in index.html');
-    console.error('Run the Chart tab fetch manually first to bake initial data');
-    process.exit(1);
-  }
-
-  // Extract existing baked data to get master dates
-  const existingSection = html.slice(startIdx, endIdx);
-  let existingData = null;
-  try {
-    const match = existingSection.match(/return\s+({[\s\S]+?});\s*$/m);
-    if(match) existingData = JSON.parse(match[1]);
-  } catch(e) {
-    console.log('No existing baked data found, will create fresh');
-  }
-
-  const priceData = {};
-  let masterDates = existingData?._dates || null;
-
-  // Fetch all tickers
+  // Fetch all equity tickers from Yahoo Finance
   for(const ticker of TICKERS) {
-    const displayTicker = ticker.replace('%5E', '^');
+    const key = ticker === '%5EVIX' ? 'VIX' : ticker;
     try {
-      console.log(`Fetching ${displayTicker}...`);
+      process.stdout.write(`  Fetching ${key}... `);
       const pairs = await fetchYahoo(ticker);
-      const key = displayTicker === '^VIX' ? 'VIX' : ticker;
-      const dates = pairs.map(p => p.date);
-      const prices = pairs.map(p => p.close);
-
-      // Use SPY dates as master
-      if(ticker === 'SPY' || !masterDates || dates.length > masterDates.length) {
-        masterDates = dates;
+      rawPrices[key] = { dates: pairs.map(p => p.date), prices: pairs.map(p => p.close) };
+      if(key === 'SPY' || !masterDates || pairs.length > masterDates.length) {
+        masterDates = pairs.map(p => p.date);
       }
-
-      priceData[key] = { dates, prices };
-      console.log(`  ✓ ${displayTicker}: ${pairs.length} days`);
-
-      // Small delay to be polite
-      await new Promise(r => setTimeout(r, 500));
+      console.log(`✓ ${pairs.length} days (latest: ${pairs[pairs.length-1].date})`);
+      await new Promise(r => setTimeout(r, 600));
     } catch(e) {
-      console.warn(`  ✗ ${displayTicker}: ${e.message}`);
+      console.log(`✗ ${e.message}`);
     }
   }
 
   // Fetch UMCSENT from FRED
   try {
-    console.log('Fetching UMCSENT from FRED...');
+    process.stdout.write('  Fetching UMCSENT (FRED)... ');
     const fred = await fetchFRED('UMCSENT');
-    priceData['UMCSENT'] = { dates: fred.dates, prices: fred.values };
-    console.log(`  ✓ UMCSENT: ${fred.dates.length} months`);
+    rawPrices['UMCSENT'] = { dates: fred.dates, prices: fred.values, monthly: true };
+    console.log(`✓ ${fred.dates.length} months`);
   } catch(e) {
-    console.warn(`  ✗ UMCSENT: ${e.message}`);
+    console.log(`✗ ${e.message}`);
   }
 
   if(!masterDates) {
-    console.error('ERROR: No master dates available');
+    console.error('\nERROR: Could not establish master date range (SPY fetch failed)');
     process.exit(1);
   }
 
+  console.log(`\nAligning ${Object.keys(rawPrices).length} series to ${masterDates.length} master dates...`);
+
   // Align all series to master dates
-  const aligned = { _dates: masterDates };
-  for(const [key, { dates, prices }] of Object.entries(priceData)) {
+  const aligned = {
+    _dates: masterDates,
+    _updated: new Date().toISOString(),
+    _tickers: Object.keys(rawPrices)
+  };
+
+  for(const [key, { dates, prices, monthly }] of Object.entries(rawPrices)) {
     const dateMap = {};
     dates.forEach((d, i) => { dateMap[d] = prices[i]; });
 
-    if(key === 'UMCSENT') {
-      // Forward-fill monthly data to daily
+    if(monthly) {
+      // Forward-fill monthly FRED data to daily
       let lastVal = null;
       aligned[key] = masterDates.map(d => {
         if(dateMap[d] !== undefined) lastVal = dateMap[d];
@@ -153,19 +124,17 @@ async function main() {
     }
   }
 
-  // Bake into index.html
-  const priceJson = JSON.stringify(aligned);
-  const newSection = `${startMarker}\n    return ${priceJson};\n    ${endMarker}`;
-  const newHtml = html.slice(0, startIdx) + newSection + html.slice(endIdx + endMarker.length);
+  // Write prices.json
+  const json = JSON.stringify(aligned);
+  fs.writeFileSync('prices.json', json, 'utf8');
 
-  fs.writeFileSync('index.html', newHtml, 'utf8');
-
-  const tickers = Object.keys(aligned).filter(k => !k.startsWith('_'));
+  const sizeMB = (json.length / 1024 / 1024).toFixed(2);
   const lastDate = masterDates[masterDates.length - 1];
-  console.log(`\n✓ Done! Baked ${tickers.length} tickers, ${masterDates.length} dates, latest: ${lastDate}`);
+  console.log(`\n✓ prices.json written — ${sizeMB}MB, ${masterDates.length} dates, latest: ${lastDate}`);
+  console.log(`  Tickers: ${aligned._tickers.join(', ')}`);
 }
 
 main().catch(e => {
-  console.error('Fatal error:', e);
+  console.error('\nFatal error:', e.message);
   process.exit(1);
 });
