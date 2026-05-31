@@ -1910,7 +1910,7 @@ function App() {
     setGenerating(false);setAborting(false);abortRef.current=false;setProg({step:0,total:0,current:"",log:[]});setTab("overview");
   },[settings,history]);
 
-  const hasKeys=!!(settings.avKey&&settings.gmKey);
+  const hasKeys=!!(settings.gmKey);
   const hasData=!!cache;
 
   // Sorted sectors
@@ -1990,7 +1990,7 @@ function App() {
                   <button className="btn-generate" onClick={hasKeys?generate:()=>setTab("settings")}>
                     {hasKeys?"Generate Report":"Enter API Keys First →"}
                   </button>
-                  {!hasKeys&&<div style={{marginTop:14,fontSize:12,color:"var(--text3)"}}>Go to ⑤ Settings to enter your API keys</div>}
+                  {!hasKeys&&<div style={{marginTop:14,fontSize:12,color:"var(--text3)"}}>Go to ⑦ Settings and enter your Groq API key</div>}
                   {hasKeys&&store.get(PARTIAL_KEY)&&(
                     <div style={{marginTop:18,fontSize:12,color:"var(--yellow)",background:"rgba(227,179,65,.08)",border:"1px solid rgba(227,179,65,.2)",borderRadius:6,padding:"10px 20px",display:"inline-block"}}>
                       ⚡ Partial progress saved — clicking Generate will resume from where it stopped
