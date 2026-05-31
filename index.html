@@ -1821,6 +1821,11 @@ function App() {
 
   const generate = useCallback(async()=>{
     if(!settings.gmKey){alert("Enter your Groq API key in Settings first.");setTab("settings");return;}
+    if(pricesLoading){alert("Price data is still loading from prices.json — please wait a moment and try again.");return;}
+    if(!hardcodedPrices || !hardcodedPrices._dates){
+      const proceed = confirm("prices.json not loaded. Report will run without price data (AI analysis only, no ETF performance). Continue?");
+      if(!proceed) return;
+    }
     setGenerating(true);
     setAborting(false);
     abortRef.current = false;
@@ -1842,25 +1847,9 @@ function App() {
         const count = Object.keys(perfData).length;
         tick(`✓ Computed performance for ${count} tickers from baked data`);
       } else {
-        // No baked data yet — fetch from proxy
-        const partial = store.get(PARTIAL_KEY)||{};
-        perfData = partial.perfData||{};
-        const remaining = ALL_TICKERS.filter(t=>!perfData[t]);
-        let fetchedCount = Object.keys(perfData).length;
-        for(let i=0;i<remaining.length;i++){
-          const t=remaining[i];
-          fetchedCount++;
-          tick(`Fetching ${t} (${fetchedCount}/${ALL_TICKERS.length})...`);
-          try {
-            perfData[t]=await fetchTicker(t,settings.avKey,msg=>tick(msg));
-            store.set(PARTIAL_KEY,{...store.get(PARTIAL_KEY)||{},perfData});
-          } catch(e) {
-            console.warn(t,e.message);
-            tick(`⚠ ${t}: ${e.message}`);
-          }
-          if(abortRef.current) { tick("⛔ Aborted by user."); break; }
-          if(i<remaining.length-1) await new Promise(r=>setTimeout(r,800));
-        }
+        // No prices.json loaded — skip price fetching, AI analysis only
+        tick("⚠ No prices.json loaded — running AI analysis only (no ETF performance data).");
+        tick("Tip: Make sure prices.json is in your GitHub repo root.");
       }
 
 
@@ -1987,10 +1976,15 @@ function App() {
                       <div key={t} className="welcome-feat"><div className="welcome-feat-icon">{i}</div><div className="welcome-feat-title">{t}</div><div className="welcome-feat-desc">{d}</div></div>
                     ))}
                   </div>
-                  <button className="btn-generate" onClick={hasKeys?generate:()=>setTab("settings")}>
-                    {hasKeys?"Generate Report":"Enter API Keys First →"}
+                  <button className="btn-generate" 
+                    onClick={hasKeys?generate:()=>setTab("settings")}
+                    disabled={pricesLoading}>
+                    {pricesLoading?"Loading price data...":hasKeys?"Generate Report":"Enter API Keys First →"}
                   </button>
                   {!hasKeys&&<div style={{marginTop:14,fontSize:12,color:"var(--text3)"}}>Go to ⑦ Settings and enter your Groq API key</div>}
+                  {hasKeys&&pricesLoading&&<div style={{marginTop:14,fontSize:12,color:"var(--yellow)"}}>⏳ Loading prices.json...</div>}
+                  {hasKeys&&pricesError&&<div style={{marginTop:14,fontSize:12,color:"var(--red)"}}>⚠ Could not load prices.json: {pricesError}</div>}
+                  {hasKeys&&!pricesLoading&&!pricesError&&pricesDate&&<div style={{marginTop:14,fontSize:12,color:"var(--green)"}}>✓ Price data ready — {pricesDate}</div>}
                   {hasKeys&&store.get(PARTIAL_KEY)&&(
                     <div style={{marginTop:18,fontSize:12,color:"var(--yellow)",background:"rgba(227,179,65,.08)",border:"1px solid rgba(227,179,65,.2)",borderRadius:6,padding:"10px 20px",display:"inline-block"}}>
                       ⚡ Partial progress saved — clicking Generate will resume from where it stopped
