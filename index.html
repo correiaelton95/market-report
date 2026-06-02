@@ -252,11 +252,10 @@ const COMMODITIES = [
 ];
 const ALL_TICKERS = [...SECTORS.map(s=>s.id),...BENCHMARKS.map(b=>b.id),...GLOBAL.map(g=>g.id),...COMMODITIES.map(c=>c.id)];
 
-const CACHE_KEY="mkt_v4_cache", HISTORY_KEY="mkt_v4_history", SETTINGS_KEY="mkt_v4_settings", PARTIAL_KEY="mkt_v4_partial", AI_EVENTS_KEY="mkt_v4_ai_events";
+const CACHE_KEY="mkt_v4_cache", HISTORY_KEY="mkt_v4_history", SETTINGS_KEY="mkt_v4_settings", AI_EVENTS_KEY="mkt_v4_ai_events";
 const CACHE_TTL = 7*24*60*60*1000;
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
-const RATE_LIMIT_WAIT = 65000;
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 const store = {
@@ -277,56 +276,18 @@ const mom = m => m==="up"?"↑":m==="down"?"↓":"→";
 const heatColor = s => s>=1.5?{bg:"rgba(63,185,80,.2)",col:"#3fb950"}:s>=0.5?{bg:"rgba(86,211,100,.13)",col:"#56d364"}:s>-0.5?{bg:"rgba(227,179,65,.13)",col:"#e3b341"}:s>-1.5?{bg:"rgba(240,136,62,.13)",col:"#f0883e"}:{bg:"rgba(248,81,73,.18)",col:"#f85149"};
 
 // ── Price Data (via Netlify proxy → Yahoo Finance, or baked) ─────────────────
-function isRateLimited(j) {
-  const note = j["Note"]||j["Information"]||"";
-  return !!(note&&(note.includes("call frequency")||note.includes("API call volume")||note.includes("subscribe")));
-}
-function isPremiumError(j) { return !!(j["Information"]&&j["Information"].includes("premium")); }
+
+
 
 // Stooq.com — free, no API key, no CORS issues, full history
 // Used by pandas-datareader, no registration needed
-const STOOQ_MAP = {"VIX": "%5EVIX"}; // Yahoo uses ^VIX encoded as %5EVIX, all others use ticker directly
+ // Yahoo uses ^VIX encoded as %5EVIX, all others use ticker directly
 
-async function fetchStooq(ticker) {
-  const sym = STOOQ_MAP[ticker] || ticker; // Yahoo uses standard tickers
-  // Call our own Netlify proxy function — no CORS issues
-  const url = `/.netlify/functions/proxy?ticker=${encodeURIComponent(sym)}`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
-  if(!r.ok) throw new Error(`Proxy HTTP ${r.status} for ${ticker}`);
-  const text = await r.text();
-  if(text.includes("No data") || text.includes("error") || text.trim().split("\n").length < 3) {
-    throw new Error("No data for "+ticker);
-  }
-  // Parse CSV: date,close
-  const lines = text.trim().split("\n").slice(1); // skip header
-  const pairs = lines.map(line => {
-    const cols = line.split(",");
-    return { date: cols[0].trim(), close: parseFloat(cols[1]) };
-  }).filter(p => p.date && !isNaN(p.close));
-  if(pairs.length === 0) throw new Error("Empty data for "+ticker);
-  return pairs; // sorted oldest→newest
-}
 
-async function fetchTicker(ticker, _key, onWait) {
-  const pairs = await fetchStooq(ticker);
-  const latest = pairs[pairs.length-1].close;
-  const perf = n => {
-    const idx = Math.max(0, pairs.length-1-n);
-    const old = pairs[idx].close;
-    if(!old) return null;
-    return ((latest-old)/old)*100;
-  };
-  return {
-    ticker, price:latest,
-    w1:perf(5), m1:perf(21), m3:perf(63), m6:perf(126), y1:perf(252)
-  };
-}
 
-async function fetchGoldSpot(avKey) {
-  // Use GLD ETF data as proxy since XAU currency endpoint is unreliable on free tier
-  // We already have GLD in perfData — this just returns null and we use GLD price instead
-  return null;
-}
+
+
+// fetchGoldSpot removed — gold price from GLD in prices.json
 
 
 // ── Math-based sentiment score (anchored to real price data) ─────────────────
@@ -749,8 +710,10 @@ function RotationSignal({ sectors, analysis }) {
 function HistoryTab({ history }) {
   const [sel, setSel] = useState(SECTORS[0].id);
   if(!history||history.length===0) return <div className="empty">No history yet. Generate your first report to start tracking.</div>;
-  const sentData = history.map(h=>({ label:new Date(h.timestamp).toLocaleDateString("en-US",{month:"short",day:"numeric"}), value:h.sectorScores?.[sel]??null })).filter(d=>d.value!==null);
-  const perfData = history.map(h=>({ label:new Date(h.timestamp).toLocaleDateString("en-US",{month:"short",day:"numeric"}), value:h.perfSnapshots?.[sel]?.w1??null })).filter(d=>d.value!==null);
+  // Sort history by date and use date string for axis label
+  const sortedHistory = [...history].sort((a,b)=>(a.date||a.timestamp)-(b.date||b.timestamp));
+  const sentData = sortedHistory.map(h=>({ label: h.date || new Date(h.timestamp).toISOString().split("T")[0], value:h.sectorScores?.[sel]??null })).filter(d=>d.value!==null);
+  const perfData = sortedHistory.map(h=>({ label: h.date || new Date(h.timestamp).toISOString().split("T")[0], value:h.perfSnapshots?.[sel]?.w1??null })).filter(d=>d.value!==null);
   return (
     <div className="gap-20">
       <div className="card">
@@ -778,10 +741,9 @@ function HistoryTab({ history }) {
 }
 
 function SettingsTab({ settings, onSave, onClearCache, onClearHistory, cacheInfo }) {
-  const [av,setAv]=useState(settings.avKey||"");
   const [gm,setGm]=useState(settings.gmKey||"");
   const [saved,setSaved]=useState(false);
-  const save = () => { onSave({avKey:av,gmKey:gm}); setSaved(true); setTimeout(()=>setSaved(false),2000); };
+  const save = () => { onSave({gmKey:gm}); setSaved(true); setTimeout(()=>setSaved(false),2000); };
   return (
     <div className="settings-wrap">
       <div className="setting-group">
@@ -802,7 +764,6 @@ function SettingsTab({ settings, onSave, onClearCache, onClearHistory, cacheInfo
         <div className="setting-desc">{cacheInfo?`Last fetched: ${new Date(cacheInfo).toLocaleString()}. Auto-expires after 7 days.`:"No cache yet — report not generated."}</div>
         <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
           <button className="btn btn-ghost" onClick={onClearCache}>Clear Cache</button>
-          <button className="btn btn-ghost" onClick={()=>{store.del(PARTIAL_KEY);alert("Partial save cleared.");}}>Clear Partial Save</button>
           <button className="btn btn-danger" onClick={onClearHistory}>Clear History</button>
         </div>
       </div>
@@ -1188,7 +1149,7 @@ async function fetchRealMacroData() {
 
 
 // ── ChartTab component ────────────────────────────────────────────────────────
-function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onDownload, aiEvents=[], pricesDate=null }) {
+function ChartTab({ settings, hardcodedPrices, onBakeData, onDownload, aiEvents=[], pricesDate=null }) {
   const [priceData, setPriceData] = useState(hardcodedPrices||{});
   const [dates, setDates] = useState(hardcodedPrices?._dates||[]);
   const [fetching, setFetching] = useState(false);
@@ -1224,7 +1185,7 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
       tick(`Fetching ${t} (${i+1}/${allTickers.length})...`);
       setFetchProgress(Math.round((i/allTickers.length)*100));
       try {
-        const pairs = await fetchStooq(t);
+        const pairs = await fetchYahoo(t);
         const d = pairs.map(p=>p.date);
         const prices = pairs.map(p=>p.close);
         if(!sharedDates || d.length > sharedDates.length) sharedDates = d;
@@ -1253,7 +1214,7 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
     tick("Fetching VIX (Fear Index)...");
     await new Promise(r=>setTimeout(r,1500));
     try {
-      const vixPairs = await fetchStooq("VIX");
+      const vixPairs = await fetchYahoo("%5EVIX");
       const vResult = { timestamp: vixPairs.map(p=>new Date(p.date).getTime()/1000), indicators:{quote:[{close:vixPairs.map(p=>p.close)}]} };
       if(vResult) {
         const vPairs = vResult.timestamp.map((ts,i)=>({
@@ -1297,7 +1258,7 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, chartNeedsUpdate, onD
     setFetching(false);
     setFetchProgress(100);
     tick("✓ All done! Click Download Updated App to bake data.");
-  }, [settings.avKey, onBakeData]);
+  }, [onBakeData]);
 
   // ── Build chart ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1745,6 +1706,7 @@ function useMemo_(fn, deps) { return React.useMemo(fn, deps); }
 function App() {
   const [tab,setTab]=useState("overview");
   const [hardcodedPrices, setHardcodedPrices] = useState(null);
+  const hardcodedPricesRef = React.useRef(null);
   const [pricesLoading, setPricesLoading] = useState(true);
   const [pricesError, setPricesError] = useState(null);
   const [pricesDate, setPricesDate] = useState(null);
@@ -1758,6 +1720,7 @@ function App() {
       })
       .then(data => {
         setHardcodedPrices(data);
+        hardcodedPricesRef.current = data;
         const dates = data._dates;
         if(dates && dates.length > 0) setPricesDate(dates[dates.length-1]);
         setPricesLoading(false);
@@ -1771,6 +1734,7 @@ function App() {
   const handleBakeData = useCallback((priceData, download=false) => {
     // No longer baking into HTML — data lives in prices.json
     setHardcodedPrices(priceData);
+    hardcodedPricesRef.current = priceData;
     if(download) {
       // Download prices.json separately
       const blob = new Blob([JSON.stringify(priceData, null, 2)], {type:"application/json"});
@@ -1794,14 +1758,10 @@ function App() {
   useEffect(()=>{
     document.documentElement.classList.toggle("light", theme==="light");
   },[theme]);
-  const [chartNeedsUpdate, setChartNeedsUpdate] = useState(false);
   const [aborting, setAborting] = useState(false);
   const abortRef = React.useRef(false);
   const [aiEvents, setAiEvents] = useState(()=>store.get(AI_EVENTS_KEY)||[]);
-  // No longer needed — GitHub Action handles price updates in prices.json
-  const extendChartData = useCallback((weeklyPerfData) => {
-    setChartNeedsUpdate(false); // prices.json is source of truth now
-  }, []);
+
 
   const [settings,setSettings]=useState(loadSettings);
   const [cache,setCache]=useState(loadCache);
@@ -1821,7 +1781,26 @@ function App() {
 
   const generate = useCallback(async()=>{
     if(!settings.gmKey){alert("Enter your Groq API key in Settings first.");setTab("settings");return;}
-    if(pricesLoading){alert("Price data is still loading from prices.json — please wait a moment and try again.");return;}
+    // If prices still loading, poll hardcodedPricesRef up to 15s
+    if(!hardcodedPrices || !hardcodedPrices._dates) {
+      tick("⏳ Waiting for prices.json to finish loading...");
+      const loaded = await new Promise(resolve => {
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          const prices = hardcodedPricesRef.current;
+          if((prices && prices._dates && prices._dates.length > 0) || attempts > 30) {
+            clearInterval(interval);
+            resolve(!!(prices && prices._dates));
+          }
+        }, 500);
+      });
+      if(!loaded) {
+        alert("Price data could not be loaded from prices.json after 15s. Check your GitHub repo has prices.json in the root.");
+        setGenerating(false);
+        return;
+      }
+    }
     if(!hardcodedPrices || !hardcodedPrices._dates){
       const proceed = confirm("prices.json not loaded. Report will run without price data (AI analysis only, no ETF performance). Continue?");
       if(!proceed) return;
@@ -1834,16 +1813,16 @@ function App() {
     const tick = msg=>{step++;setProg(p=>({step,total,current:msg,log:[...p.log.slice(-6),msg]}));};
 
     try {
-      const partial = store.get(PARTIAL_KEY)||{};
-      let macro = partial.macro||null;
-      if(!macro){ tick("Analyzing macro environment..."); macro=await analyzeMacro(settings.gmKey); store.set(PARTIAL_KEY,{...partial,macro}); }
-      else { tick("Macro loaded from cache..."); }
+      // Always fetch fresh macro — never cache (real FRED data + AI context must be current)
+      tick("Analyzing macro environment...");
+      const macro = await analyzeMacro(settings.gmKey);
 
       // Derive performance from baked chart prices — no API calls needed
       let perfData = {};
-      if(hardcodedPrices && hardcodedPrices._dates && hardcodedPrices._dates.length > 0) {
+      const pricesToUse = hardcodedPricesRef.current || hardcodedPrices;
+      if(pricesToUse && pricesToUse._dates && pricesToUse._dates.length > 0) {
         tick("Computing ETF performance from baked price data...");
-        perfData = derivePerfFromBaked(hardcodedPrices);
+        perfData = derivePerfFromBaked(pricesToUse);
         const count = Object.keys(perfData).length;
         tick(`✓ Computed performance for ${count} tickers from baked data`);
       } else {
@@ -1867,13 +1846,15 @@ function App() {
       tick("Analyzing commodities...");
       const commAnalysis=await analyzeComm(settings.gmKey,perfData,msg=>tick(msg));
 
-      const newCache={perfData,analysis,macro,commAnalysis,goldSpot:perfData["GLD"]?.price??null,oilSpot:perfData["USO"]?.price??null,timestamp:Date.now()};
-      setCache(newCache);store.set(CACHE_KEY,newCache);store.del(PARTIAL_KEY);
-
+      const newCache={perfData,analysis,macro,commAnalysis,goldSpot:pricesToUse?.["GLD"]?.[( pricesToUse?.["GLD"]?.length||1)-1]??null,oilSpot:pricesToUse?.["USO"]?.[(pricesToUse?.["USO"]?.length||1)-1]??null,timestamp:Date.now()};
+      setCache(newCache);store.set(CACHE_KEY,newCache);
       const sectorScores={},perfSnapshots={};
       SECTORS.forEach(s=>{sectorScores[s.id]=analysis[s.id]?.score??0;perfSnapshots[s.id]=perfData[s.id]??null;});
-      const newHistory=[...history,{timestamp:Date.now(),sectorScores,perfSnapshots}];
-      setHistory(newHistory);store.set(HISTORY_KEY,newHistory.slice(-20));
+      const todayStr = new Date().toISOString().split("T")[0];
+      // Deduplicate — max one entry per day (replace if same day)
+      const dedupedHistory = history.filter(h => new Date(h.timestamp).toISOString().split("T")[0] !== todayStr);
+      const newHistory=[...dedupedHistory,{timestamp:Date.now(),sectorScores,perfSnapshots,date:todayStr}];
+      setHistory(newHistory);store.set(HISTORY_KEY,newHistory.slice(-52)); // keep 1 year of weekly data
 
       // Generate AI events for this week
       tick("Identifying market events this week...");
@@ -1892,8 +1873,6 @@ function App() {
         }
       } catch(e) { console.warn("Event generation failed:", e.message); }
 
-      // Extend chart data with this week's prices
-      extendChartData(perfData);
 
     } catch(err){alert("Error: "+err.message);}
     setGenerating(false);setAborting(false);abortRef.current=false;setProg({step:0,total:0,current:"",log:[]});setTab("overview");
@@ -1985,11 +1964,7 @@ function App() {
                   {hasKeys&&pricesLoading&&<div style={{marginTop:14,fontSize:12,color:"var(--yellow)"}}>⏳ Loading prices.json...</div>}
                   {hasKeys&&pricesError&&<div style={{marginTop:14,fontSize:12,color:"var(--red)"}}>⚠ Could not load prices.json: {pricesError}</div>}
                   {hasKeys&&!pricesLoading&&!pricesError&&pricesDate&&<div style={{marginTop:14,fontSize:12,color:"var(--green)"}}>✓ Price data ready — {pricesDate}</div>}
-                  {hasKeys&&store.get(PARTIAL_KEY)&&(
-                    <div style={{marginTop:18,fontSize:12,color:"var(--yellow)",background:"rgba(227,179,65,.08)",border:"1px solid rgba(227,179,65,.2)",borderRadius:6,padding:"10px 20px",display:"inline-block"}}>
-                      ⚡ Partial progress saved — clicking Generate will resume from where it stopped
-                    </div>
-                  )}
+
                 </div>
               )}
 
@@ -2105,7 +2080,7 @@ function App() {
 
 
           {/* ── CHART ── */}
-          {tab==="chart"&&<ChartTab settings={settings} hardcodedPrices={hardcodedPrices} onBakeData={handleBakeData} chartNeedsUpdate={chartNeedsUpdate} onDownload={()=>{handleBakeData(hardcodedPrices,true);setChartNeedsUpdate(false);}} aiEvents={aiEvents} pricesDate={pricesDate}/>}
+          {tab==="chart"&&<ChartTab settings={settings} hardcodedPrices={hardcodedPrices} onBakeData={handleBakeData} onDownload={()=>{handleBakeData(hardcodedPrices,true);setChartNeedsUpdate(false);}} aiEvents={aiEvents} pricesDate={pricesDate}/>}
 
           {/* ── HISTORY ── */}
           {tab==="history"&&<HistoryTab history={history}/>}
