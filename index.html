@@ -1117,50 +1117,15 @@ async function fetchFRED(seriesId) {
   return { dates, values };
 }
 
-// ── Fetch real macro numbers directly from FRED ───────────────────────────────
+// ── Read real macro numbers from prices.json (fetched by GitHub Action server-side) ──
+// FRED blocks browser CORS — data is fetched server-side in update-prices.js
 async function fetchRealMacroData() {
-  const results = {};
-  try {
-    // CPI YoY % change (CPIAUCSL — monthly)
-    const cpi = await fetchFRED("CPIAUCSL");
-    if(cpi.values.length >= 13) {
-      const latest = cpi.values[cpi.values.length-1];
-      const yearAgo = cpi.values[cpi.values.length-13];
-      const yoy = ((latest - yearAgo) / yearAgo * 100).toFixed(1);
-      const prev = cpi.values[cpi.values.length-2];
-      const prevYearAgo = cpi.values[cpi.values.length-14];
-      const prevYoy = ((prev - prevYearAgo) / prevYearAgo * 100).toFixed(1);
-      const trend = parseFloat(yoy) < parseFloat(prevYoy) ? "↓ cooling" : "↑ rising";
-      results.cpi = `${yoy}% YoY`;
-      results.cpiDate = cpi.dates[cpi.dates.length-1];
-      results.cpiTrend = trend;
-      results.cpiPrev = `${prevYoy}%`;
-    }
-  } catch(e) { console.warn("CPI fetch failed:", e.message); }
-
-  try {
-    // Fed Funds Rate (FEDFUNDS — monthly effective rate)
-    const fed = await fetchFRED("FEDFUNDS");
-    if(fed.values.length > 0) {
-      const latest = fed.values[fed.values.length-1].toFixed(2);
-      results.fedRate = `${latest}%`;
-      results.fedDate = fed.dates[fed.dates.length-1];
-    }
-  } catch(e) { console.warn("Fed rate fetch failed:", e.message); }
-
-  try {
-    // Real GDP Growth QoQ annualized (A191RL1Q225SBEA — quarterly)
-    const gdp = await fetchFRED("A191RL1Q225SBEA");
-    if(gdp.values.length > 0) {
-      const latest = gdp.values[gdp.values.length-1].toFixed(1);
-      const prev = gdp.values[gdp.values.length-2].toFixed(1);
-      results.gdp = `${latest}% (annualized)`;
-      results.gdpDate = gdp.dates[gdp.dates.length-1];
-      results.gdpPrev = prev;
-    }
-  } catch(e) { console.warn("GDP fetch failed:", e.message); }
-
-  return results;
+  const macro = hardcodedPricesRef.current?._macro;
+  if(!macro) {
+    console.warn("No macro data in prices.json — GitHub Action may not have run yet");
+    return {};
+  }
+  return macro;
 }
 
 

@@ -124,6 +124,10 @@ async function main() {
     }
   }
 
+  // Fetch FRED macro data server-side (no CORS issues here)
+  const macroData = await fetchMacroData();
+  aligned._macro = macroData;
+
   // Write prices.json
   const json = JSON.stringify(aligned);
   fs.writeFileSync('prices.json', json, 'utf8');
@@ -138,3 +142,61 @@ main().catch(e => {
   console.error('\nFatal error:', e.message);
   process.exit(1);
 });
+
+// ── Fetch FRED macro data (runs server-side, no CORS issues) ─────────────────
+async function fetchFREDSeries(seriesId) {
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
+  const res = await fetchUrl(url);
+  const lines = res.body.trim().split('\n').slice(1);
+  const dates = [], values = [];
+  lines.forEach(line => {
+    const [date, val] = line.split(',');
+    if(date && val && val.trim() !== '.') {
+      dates.push(date.trim());
+      values.push(parseFloat(val.trim()));
+    }
+  });
+  return { dates, values };
+}
+
+async function fetchMacroData() {
+  console.log('\nFetching FRED macro data...');
+  const macro = {};
+  try {
+    const cpi = await fetchFREDSeries('CPIAUCSL');
+    if(cpi.values.length >= 13) {
+      const latest = cpi.values[cpi.values.length-1];
+      const yearAgo = cpi.values[cpi.values.length-13];
+      const yoy = ((latest-yearAgo)/yearAgo*100).toFixed(1);
+      const prev = cpi.values[cpi.values.length-2];
+      const prevYearAgo = cpi.values[cpi.values.length-14];
+      const prevYoy = ((prev-prevYearAgo)/prevYearAgo*100).toFixed(1);
+      macro.cpi = `${yoy}% YoY`;
+      macro.cpiDate = cpi.dates[cpi.dates.length-1];
+      macro.cpiTrend = parseFloat(yoy) < parseFloat(prevYoy) ? '↓ cooling' : '↑ rising';
+      macro.cpiPrev = `${prevYoy}%`;
+      console.log(`  ✓ CPI: ${macro.cpi} (${macro.cpiTrend})`);
+    }
+  } catch(e) { console.log(`  ✗ CPI: ${e.message}`); }
+
+  try {
+    const fed = await fetchFREDSeries('FEDFUNDS');
+    if(fed.values.length > 0) {
+      macro.fedRate = `${fed.values[fed.values.length-1].toFixed(2)}%`;
+      macro.fedDate = fed.dates[fed.dates.length-1];
+      console.log(`  ✓ Fed Rate: ${macro.fedRate}`);
+    }
+  } catch(e) { console.log(`  ✗ Fed Rate: ${e.message}`); }
+
+  try {
+    const gdp = await fetchFREDSeries('A191RL1Q225SBEA');
+    if(gdp.values.length > 0) {
+      macro.gdp = `${gdp.values[gdp.values.length-1].toFixed(1)}% (annualized)`;
+      macro.gdpDate = gdp.dates[gdp.dates.length-1];
+      macro.gdpPrev = gdp.values[gdp.values.length-2].toFixed(1);
+      console.log(`  ✓ GDP: ${macro.gdp}`);
+    }
+  } catch(e) { console.log(`  ✗ GDP: ${e.message}`); }
+
+  return macro;
+}
