@@ -1082,6 +1082,24 @@ function buildSegmentedDataset(ticker, normalizedData, assetRegime, baseColor) {
 }
 
 
+
+// ── Yahoo Finance via Netlify proxy (used by ChartTab historical fetch) ────────
+async function fetchYahoo(ticker) {
+  const url = `/.netlify/functions/proxy?ticker=${encodeURIComponent(ticker)}`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if(!r.ok) throw new Error(`Proxy HTTP ${r.status} for ${ticker}`);
+  const text = await r.text();
+  if(!text || text.includes('"error"')) throw new Error(`No data for ${ticker}`);
+  // Parse CSV: date,close
+  const lines = text.trim().split("\n").slice(1);
+  const pairs = lines.map(line => {
+    const [date, close] = line.split(",");
+    return { date: date?.trim(), close: parseFloat(close) };
+  }).filter(p => p.date && !isNaN(p.close));
+  if(pairs.length === 0) throw new Error(`Empty data for ${ticker}`);
+  return pairs;
+}
+
 // ── Fetch from FRED (no key required) ────────────────────────────────────────
 async function fetchFRED(seriesId) {
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${seriesId}`;
@@ -1499,8 +1517,17 @@ function ChartTab({ settings, hardcodedPrices, onBakeData, onDownload, aiEvents=
           : <span style={{color:"var(--yellow)"}}>⚠ prices.json not found — add it to your GitHub repo root, or fetch below to generate it.</span>
         }
       </div>
-      <button className="btn-generate" onClick={fetchAll}>Fetch & Download prices.json</button>
-      <div style={{marginTop:14,fontSize:11,color:"var(--text3)"}}>After downloading, add prices.json to your GitHub repo root. GitHub Action will update it weekly from then on.</div>
+      {pricesDate
+        ? <div style={{marginTop:16,padding:"14px 20px",background:"rgba(63,185,80,.08)",border:"1px solid rgba(63,185,80,.2)",borderRadius:8,fontSize:12,color:"var(--text2)"}}>
+            ✓ Price data loaded from <strong>prices.json</strong> — {pricesDate} is the latest date.<br/>
+            <span style={{color:"var(--text3)",marginTop:4,display:"block"}}>Data updates automatically every Sunday via GitHub Action. To trigger manually: GitHub → Actions → Weekly Price Update → Run workflow.</span>
+          </div>
+        : <div style={{marginTop:16}}>
+            <div style={{fontSize:12,color:"var(--yellow)",marginBottom:16}}>⚠ prices.json not found in your repo. Make sure it's uploaded to your GitHub repo root.</div>
+            <button className="btn-generate" onClick={fetchAll} style={{fontSize:13,padding:"12px 28px"}}>Fetch prices.json (requires Netlify proxy)</button>
+            <div style={{marginTop:10,fontSize:11,color:"var(--text3)"}}>Only works if you have the Netlify proxy running. Otherwise upload prices.json manually.</div>
+          </div>
+      }
     </div>
   );
 
@@ -1781,34 +1808,17 @@ function App() {
 
   const generate = useCallback(async()=>{
     if(!settings.gmKey){alert("Enter your Groq API key in Settings first.");setTab("settings");return;}
-    // If prices still loading, poll hardcodedPricesRef up to 15s
-    if(!hardcodedPrices || !hardcodedPrices._dates) {
-      tick("⏳ Waiting for prices.json to finish loading...");
-      const loaded = await new Promise(resolve => {
-        let attempts = 0;
-        const interval = setInterval(() => {
-          attempts++;
-          const prices = hardcodedPricesRef.current;
-          if((prices && prices._dates && prices._dates.length > 0) || attempts > 30) {
-            clearInterval(interval);
-            resolve(!!(prices && prices._dates));
-          }
-        }, 500);
-      });
-      if(!loaded) {
-        alert("Price data could not be loaded from prices.json after 15s. Check your GitHub repo has prices.json in the root.");
-        setGenerating(false);
-        return;
-      }
-    }
-    if(!hardcodedPrices || !hardcodedPrices._dates){
-      const proceed = confirm("prices.json not loaded. Report will run without price data (AI analysis only, no ETF performance). Continue?");
-      if(!proceed) return;
-    }
     setGenerating(true);
     setAborting(false);
     abortRef.current = false;
     let step=0;
+    // Wait up to 15s for prices.json ref to populate (2MB async load)
+    if(!hardcodedPricesRef.current) {
+      for(let i=0; i<50; i++) {
+        await new Promise(r=>setTimeout(r,300));
+        if(hardcodedPricesRef.current) break;
+      }
+    }
     const total = 2+ALL_TICKERS.length+SECTORS.length+1;
     const tick = msg=>{step++;setProg(p=>({step,total,current:msg,log:[...p.log.slice(-6),msg]}));};
 
@@ -1819,7 +1829,7 @@ function App() {
 
       // Derive performance from baked chart prices — no API calls needed
       let perfData = {};
-      const pricesToUse = hardcodedPricesRef.current || hardcodedPrices;
+      const pricesToUse = hardcodedPricesRef.current; // always use ref — always latest value
       if(pricesToUse && pricesToUse._dates && pricesToUse._dates.length > 0) {
         tick("Computing ETF performance from baked price data...");
         perfData = derivePerfFromBaked(pricesToUse);
@@ -1838,15 +1848,25 @@ function App() {
         if(abortRef.current) { tick("⛔ Aborted by user."); break; }
         const s=SECTORS[i];
         tick(`Analyzing ${s.name} (${i+1}/${SECTORS.length})...`);
-        try { analysis[s.id]=await analyzeSector(settings.gmKey,s,perfData,msg=>tick(msg)); }
-        catch(e) { console.warn(s.id,e.message); analysis[s.id]={score:0,momentum:"flat",pulse:"Analysis unavailable.",subindustry:"",earnings:"No data",georisk:null,topMovers:[],outlook:""}; }
+        try {
+          const result = await analyzeSector(settings.gmKey,s,perfData,msg=>tick(msg));
+          // Enforce score clamping (mathScore ± 0.5) regardless of AI response
+          const mathBase = calcMathScore(perfData[s.id]);
+          result.score = clampScore(Math.max(mathBase-0.5, Math.min(mathBase+0.5, result.score||mathBase)));
+          analysis[s.id] = result;
+        }
+        catch(e) {
+          console.warn(s.id,e.message);
+          const fallbackScore = calcMathScore(perfData[s.id]);
+          analysis[s.id]={score:fallbackScore,momentum:"flat",pulse:"Analysis unavailable.",subindustry:"",earnings:"No data",georisk:null,topMovers:[],outlook:""};
+        }
         if(i<SECTORS.length-1) await new Promise(r=>setTimeout(r,7000));
       }
 
       tick("Analyzing commodities...");
       const commAnalysis=await analyzeComm(settings.gmKey,perfData,msg=>tick(msg));
 
-      const newCache={perfData,analysis,macro,commAnalysis,goldSpot:pricesToUse?.["GLD"]?.[( pricesToUse?.["GLD"]?.length||1)-1]??null,oilSpot:pricesToUse?.["USO"]?.[(pricesToUse?.["USO"]?.length||1)-1]??null,timestamp:Date.now()};
+      const newCache={perfData,analysis,macro,commAnalysis,goldSpot: pricesToUse?.GLD?.[pricesToUse.GLD.length-1]??null, oilSpot: pricesToUse?.USO?.[pricesToUse.USO.length-1]??null,timestamp:Date.now()};
       setCache(newCache);store.set(CACHE_KEY,newCache);
       const sectorScores={},perfSnapshots={};
       SECTORS.forEach(s=>{sectorScores[s.id]=analysis[s.id]?.score??0;perfSnapshots[s.id]=perfData[s.id]??null;});
@@ -1956,9 +1976,8 @@ function App() {
                     ))}
                   </div>
                   <button className="btn-generate" 
-                    onClick={hasKeys?generate:()=>setTab("settings")}
-                    disabled={pricesLoading}>
-                    {pricesLoading?"Loading price data...":hasKeys?"Generate Report":"Enter API Keys First →"}
+                    onClick={hasKeys?generate:()=>setTab("settings")}>
+                    {hasKeys?"Generate Report":"Enter API Keys First →"}
                   </button>
                   {!hasKeys&&<div style={{marginTop:14,fontSize:12,color:"var(--text3)"}}>Go to ⑦ Settings and enter your Groq API key</div>}
                   {hasKeys&&pricesLoading&&<div style={{marginTop:14,fontSize:12,color:"var(--yellow)"}}>⏳ Loading prices.json...</div>}
