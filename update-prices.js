@@ -4,12 +4,29 @@
 const https = require('https');
 const fs = require('fs');
 
+const SECTOR_STOCKS = {
+  "XLK": ["AAPL","MSFT","NVDA","AVGO","ORCL"],
+  "XLV": ["LLY","UNH","JNJ","ABBV","MRK"],
+  "XLF": ["BRK-B","JPM","V","MA","BAC"],
+  "XLE": ["XOM","CVX","COP","EOG","SLB"],
+  "XLY": ["AMZN","TSLA","HD","MCD","NKE"],
+  "XLP": ["WMT","PG","COST","KO","PEP"],
+  "XLI": ["GE","CAT","UNP","RTX","HON"],
+  "XLB": ["LIN","APD","SHW","FCX","NEM"],
+  "XLRE": ["PLD","AMT","EQIX","SPG","O"],
+  "XLU": ["NEE","SO","DUK","AEP","EXC"],
+  "XLC": ["META","GOOGL","NFLX","DIS","CMCSA"],
+};
+
+const ALL_STOCKS = Object.values(SECTOR_STOCKS).flat();
+
 const TICKERS = [
   'XLK','XLV','XLF','XLE','XLY','XLP','XLI','XLB','XLRE','XLU','XLC',
   'SPY','QQQ','DIA','IWM',
   'VEU','EEM','VGK','VPL',
   'GLD','SLV','USO','COPA','DJP',
-  '%5EVIX'
+  '%5EVIX',
+  ...ALL_STOCKS
 ];
 
 function fetchUrl(url) {
@@ -127,6 +144,7 @@ async function main() {
   // Fetch FRED macro data server-side (no CORS issues here)
   const macroData = await fetchMacroData();
   aligned._macro = macroData;
+  aligned._sectorStocks = SECTOR_STOCKS;
 
   // Write prices.json
   const json = JSON.stringify(aligned);

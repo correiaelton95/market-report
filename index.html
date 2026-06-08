@@ -339,6 +339,53 @@ function derivePerfFromBaked(hardcodedPrices) {
   return perfData;
 }
 
+
+// ── Sector stocks — loaded from prices.json _sectorStocks or fallback ─────────
+const SECTOR_STOCKS_DEFAULT = {
+  "XLK": ["AAPL","MSFT","NVDA","AVGO","ORCL"],
+  "XLV": ["LLY","UNH","JNJ","ABBV","MRK"],
+  "XLF": ["BRK-B","JPM","V","MA","BAC"],
+  "XLE": ["XOM","CVX","COP","EOG","SLB"],
+  "XLY": ["AMZN","TSLA","HD","MCD","NKE"],
+  "XLP": ["WMT","PG","COST","KO","PEP"],
+  "XLI": ["GE","CAT","UNP","RTX","HON"],
+  "XLB": ["LIN","APD","SHW","FCX","NEM"],
+  "XLRE": ["PLD","AMT","EQIX","SPG","O"],
+  "XLU": ["NEE","SO","DUK","AEP","EXC"],
+  "XLC": ["META","GOOGL","NFLX","DIS","CMCSA"],
+};
+
+// ── Compute real stock performance from prices.json ───────────────────────────
+function calcStockPerf(ticker, pricesData) {
+  const prices = pricesData?.[ticker];
+  if(!prices || prices.length === 0) return null;
+  // Find last non-null price
+  let latestIdx = prices.length - 1;
+  while(latestIdx > 0 && (prices[latestIdx] === null || prices[latestIdx] === undefined)) latestIdx--;
+  const latest = prices[latestIdx];
+  if(!latest) return null;
+  const perf = n => {
+    const idx = Math.max(0, latestIdx - n);
+    const old = prices[idx];
+    if(!old) return null;
+    return parseFloat(((latest - old) / old * 100).toFixed(2));
+  };
+  return { ticker, price: latest, w1: perf(5), m1: perf(21), m3: perf(63) };
+}
+
+// ── Get real movers for a sector from prices.json ─────────────────────────────
+function getRealMovers(sectorId, pricesData) {
+  const sectorStocks = (pricesData?._sectorStocks || SECTOR_STOCKS_DEFAULT)[sectorId] || [];
+  const perfs = sectorStocks
+    .map(ticker => calcStockPerf(ticker, pricesData))
+    .filter(p => p && p.w1 !== null);
+  // Sort by 1W performance
+  const sorted = [...perfs].sort((a, b) => b.w1 - a.w1);
+  const gainers = sorted.slice(0, 3);
+  const losers = sorted.slice(-3).reverse();
+  return { gainers, losers };
+}
+
 // ── Groq ──────────────────────────────────────────────────────────────────────
 async function groq(apiKey, prompt, onWait) {
   for(let attempt=0; attempt<4; attempt++) {
@@ -379,7 +426,7 @@ Use your most current knowledge. Today is ${new Date().toDateString()}. Referenc
 Focus on: (1) what actually drove performance over the PAST MONTH with specific company/event names, (2) major geopolitical or macro events affecting this sector RIGHT NOW, (3) specific sub-industries leading or lagging, (4) concrete earnings THIS WEEK if any, (5) 12-24 month structural outlook.
 
 Respond ONLY with valid JSON, no markdown, no backticks:
-{"score":<float, must be between ${clampScore(mathScore-0.5)} and ${clampScore(mathScore+0.5)}>,"momentum":<"up"|"down"|"flat">,"scoreAdjustReason":"<why you adjusted from ${mathScore}, or 'none' if kept>","pulse":"<4-5 specific sentences referencing real recent events and company names>","subindustry":"<1-2 sentences on most interesting sub-sector with specific names>","earnings":"<specific companies reporting THIS week with tickers, or 'No major earnings this week'>","georisk":<null or "<specific current geopolitical risk affecting this sector>">,"topMovers":[{"ticker":"<real ticker>","pct":<number>,"dir":"up"},{"ticker":"<real ticker>","pct":<number>,"dir":"up"},{"ticker":"<real ticker>","pct":<number>,"dir":"up"},{"ticker":"<real ticker>","pct":<number>,"dir":"down"},{"ticker":"<real ticker>","pct":<number>,"dir":"down"},{"ticker":"<real ticker>","pct":<number>,"dir":"down"}],"outlook":"<2 sentences: near-term catalyst and 12-24 month structural view>"}`
+{"score":<float, must be between ${clampScore(mathScore-0.5)} and ${clampScore(mathScore+0.5)}>,"momentum":<"up"|"down"|"flat">,"scoreAdjustReason":"<why you adjusted from ${mathScore}, or 'none' if kept>","pulse":"<4-5 specific sentences referencing real recent events and company names>","subindustry":"<1-2 sentences on most interesting sub-sector with specific names>","earnings":"<specific companies reporting THIS week with tickers, or 'No major earnings this week'>","georisk":<null or "<specific current geopolitical risk affecting this sector>">,"outlook":"<2 sentences: near-term catalyst and 12-24 month structural view>"}`
   , onWait);
   try {
     const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
@@ -388,7 +435,7 @@ Respond ONLY with valid JSON, no markdown, no backticks:
     parsed.mathScore = mathScore;
     return parsed;
   }
-  catch { return {score:mathScore, mathScore, momentum:"flat", pulse:raw.slice(0,300), subindustry:"", earnings:"No data", georisk:null, topMovers:[], outlook:""}; }
+  catch { return {score:mathScore, mathScore, momentum:"flat", pulse:raw.slice(0,300), subindustry:"", earnings:"No data", georisk:null, outlook:""}; }
 }
 
 async function analyzeMacro(apiKey) {
@@ -561,29 +608,40 @@ function BenchCard({ item, data }) {
   );
 }
 
-function TopMovers({ movers }) {
-  if(!movers||movers.length===0) return null;
-  const up = movers.filter(m=>m.dir==="up").slice(0,3);
-  const down = movers.filter(m=>m.dir==="down").slice(0,3);
+function TopMovers({ sectorId, pricesData }) {
+  if(!pricesData || !sectorId) return <div className="empty" style={{padding:8,fontSize:11}}>Price data not loaded</div>;
+  const { gainers, losers } = getRealMovers(sectorId, pricesData);
+  if(gainers.length === 0) return <div className="empty" style={{padding:8,fontSize:11}}>No stock data available</div>;
+
+  const MoverRow = ({ p, isGainer }) => (
+    <div className="mover-row">
+      <span className="mover-ticker" style={{color:"var(--text)",minWidth:50}}>{p.ticker}</span>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:10,color:"var(--text3)"}}>1W</div>
+          <span className="mover-pct" style={{color:p.w1>=0?"var(--green)":"var(--red)",fontSize:12}}>
+            {p.w1>=0?"+":""}{p.w1?.toFixed(1)}%
+          </span>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:10,color:"var(--text3)"}}>1M</div>
+          <span className="mover-pct" style={{color:p.m1>=0?"var(--green)":"var(--red)",fontSize:12}}>
+            {p.m1>=0?"+":""}{p.m1?.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <div>
-        <div className="expanded-label" style={{color:"var(--green)",marginBottom:6}}>↑ Top Gainers</div>
-        {up.map((m,i)=>(
-          <div key={i} className="mover-row">
-            <span className="mover-ticker" style={{color:"var(--text)"}}>{m.ticker}</span>
-            <span className="mover-pct" style={{color:"var(--green)"}}>+{Math.abs(m.pct).toFixed(1)}%</span>
-          </div>
-        ))}
+        <div className="expanded-label" style={{color:"var(--green)",marginBottom:6}}>↑ Top Gainers (1W)</div>
+        {gainers.map((p,i) => <MoverRow key={i} p={p} isGainer={true}/>)}
       </div>
       <div>
-        <div className="expanded-label" style={{color:"var(--red)",marginBottom:6}}>↓ Top Losers</div>
-        {down.map((m,i)=>(
-          <div key={i} className="mover-row">
-            <span className="mover-ticker" style={{color:"var(--text)"}}>{m.ticker}</span>
-            <span className="mover-pct" style={{color:"var(--red)"}}>-{Math.abs(m.pct).toFixed(1)}%</span>
-          </div>
-        ))}
+        <div className="expanded-label" style={{color:"var(--red)",marginBottom:6}}>↓ Top Losers (1W)</div>
+        {losers.map((p,i) => <MoverRow key={i} p={p} isGainer={false}/>)}
       </div>
     </div>
   );
@@ -639,10 +697,10 @@ function SectorCard({ sector, perf, analysis }) {
             <div className="expanded-text">{a.earnings}</div>
           </div>
           {a.georisk&&<div className="expanded-section"><div className="risk-flag">⚠️ {a.georisk}</div></div>}
-          {a.topMovers&&a.topMovers.length>0&&<div className="expanded-section">
-            <div className="expanded-label">Top Movers This Week</div>
-            <TopMovers movers={a.topMovers}/>
-          </div>}
+          <div className="expanded-section">
+            <div className="expanded-label">Top Movers (Real Data from prices.json)</div>
+            <TopMovers sectorId={sector.id} pricesData={analysis?._pricesRef||null}/>
+          </div>
           {a.outlook&&<div className="expanded-section">
             <div className="expanded-label">Outlook (Near-term & Structural)</div>
             <div className="expanded-text" style={{color:"var(--accent)"}}>{a.outlook}</div>
@@ -1823,7 +1881,7 @@ function App() {
         catch(e) {
           console.warn(s.id,e.message);
           const fallbackScore = calcMathScore(perfData[s.id]);
-          analysis[s.id]={score:fallbackScore,momentum:"flat",pulse:"Analysis unavailable.",subindustry:"",earnings:"No data",georisk:null,topMovers:[],outlook:""};
+          analysis[s.id]={score:fallbackScore,momentum:"flat",pulse:"Analysis unavailable.",subindustry:"",earnings:"No data",georisk:null,outlook:""};
         }
         if(i<SECTORS.length-1) await new Promise(r=>setTimeout(r,7000));
       }
@@ -1831,6 +1889,8 @@ function App() {
       tick("Analyzing commodities...");
       const commAnalysis=await analyzeComm(settings.gmKey,perfData,msg=>tick(msg));
 
+      // Attach pricesData ref to analysis so SectorCard can access stock prices
+      Object.keys(analysis).forEach(k => { analysis[k]._pricesRef = pricesToUse; });
       const newCache={perfData,analysis,macro,commAnalysis,goldSpot: pricesToUse?.GLD?.[pricesToUse.GLD.length-1]??null, oilSpot: pricesToUse?.USO?.[pricesToUse.USO.length-1]??null,timestamp:Date.now()};
       setCache(newCache);store.set(CACHE_KEY,newCache);
       const sectorScores={},perfSnapshots={};
